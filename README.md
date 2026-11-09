@@ -2,6 +2,8 @@
 
 Local Node.js 24 automation with interchangeable website plugins, browser and API transports, and SQLite storage. Jobright is implemented and has been inspected against the authenticated website.
 
+See the [documentation index](docs/README.md) for architecture, common development patterns, the data model, plugin integration, and backend/dashboard setup.
+
 ## React dashboard and multi-user backend
 
 The Fastify backend adds cookie authentication, private site connections, asynchronous start/stop/retry APIs, run progress/events, and owner-scoped job queries. Scrapers run in separate processes; SQLite access for HTTP runs in a database worker thread.
@@ -71,7 +73,7 @@ The primary database is `data/jobs.sqlite`, using WAL and foreign keys. `DATA_DI
 
 | Table | Contents |
 | --- | --- |
-| `jobs` | Unique website/job ID, URL, title, company, timestamps, `details_json`, `raw_json` |
+| `jobs` | Connection-scoped source job ID, ownership, URL, title, company, timestamps, `details_json`, `raw_json` |
 | `job_processing` | Account-specific local processing state, website status, and last error |
 | `runs` | Transport, timestamps, outcome, counters, and error |
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jobright Browser to API"
+  short_description: "Discover Jobright requests and extend both transports"
+  default_prompt: "Use $jobright-browser-to-api to implement the requested Jobright browser operation, capture its network contract, and implement and verify the matching API transport."
