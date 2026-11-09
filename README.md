@@ -2,16 +2,19 @@
 
 Local Node.js 24 automation with interchangeable website plugins, browser and API transports, and SQLite storage. Jobright is implemented and has been inspected against the authenticated website.
 
-## Multi-user backend
+## React dashboard and multi-user backend
 
 The Fastify backend adds cookie authentication, private site connections, asynchronous start/stop/retry APIs, run progress/events, and owner-scoped job queries. Scrapers run in separate processes; SQLite access for HTTP runs in a database worker thread.
 
 ```powershell
 .\npm.cmd run service:init -- --import-legacy
+.\npm.cmd run web:build
 .\npm.cmd run service
 ```
 
-Initialization prompts for the first administrator and can claim existing records for that administrator. Open **http://127.0.0.1:3000/docs** for the API. See [the backend guide](docs/backend.md) for account setup, endpoints, lifecycle behavior and migration details.
+Initialization prompts for the first administrator and can claim existing records for that administrator. Open **http://127.0.0.1:3000** for the dashboard and **http://127.0.0.1:3000/docs** for the API. Manage private job-site profiles, start/stop/retry collections, and browse full job details. See [the backend guide](docs/backend.md) for setup, frontend development, endpoints, lifecycle behavior, and migration details.
+
+For frontend development, keep the backend running and use `.\npm.cmd run web:dev`; open **http://127.0.0.1:5173**. Run `.\npm.cmd run web:test` for component tests, and build before `.\npm.cmd run web:e2e` for fixture-backed Playwright tests.
 
 ## Run on Windows
 

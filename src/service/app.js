@@ -3,13 +3,16 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import staticFiles from '@fastify/static';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
-import { unlink } from 'node:fs/promises';
+import { join, extname } from 'node:path';
+import { unlink, access } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { AsyncStore } from '../storage/async-store.js';
 import { Supervisor } from './supervisor.js';
 import { acquireLock } from '../core/lock.js';
-import { loadPlugin } from '../core/plugin-registry.js';
+import { loadPlugin, listSites } from '../core/plugin-registry.js';
 import { accountKey } from '../core/security.js';
 import { hashPassword, verifyPassword, hashToken, encryptCredentials, scrubSecrets } from './crypto.js';
 import { ServiceError } from './errors.js';
@@ -70,6 +73,9 @@ export async function buildService(config, { supervise = true } = {}) {
       await db.call('deleteSession', hashToken(request.cookies.session)); reply.clearCookie('session', cookieOptions); return { ok: true };
     });
     route('GET', '/auth/me', { response: s.response(200, s.user) }, request => request.user);
+    route('GET', '/sites', { response: s.response(200, { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      id: { type: 'string' }, name: { type: 'string' }, transports: { type: 'array', items: { type: 'string' } }, operations: { type: 'array', items: { type: 'string' } },
+    } } }) }, () => listSites(config.sites));
     route('POST', '/users', { body: bodySchema({ email: s.credentials.email, password: { type: 'string', minLength: 12, maxLength: 256 }, role: { type: 'string', enum: ['admin','user'], default: 'user' } }, ['email','password']), response: s.response(201, s.user) }, async (request, reply) => {
       const user = await db.call('createUser', { email: request.body.email, passwordHash: await hashPassword(request.body.password), role: request.body.role });
       return reply.code(201).send(user);
@@ -102,7 +108,7 @@ export async function buildService(config, { supervise = true } = {}) {
       const run = await db.call('enqueue', request.user.id, connection.id, 'collection', { transport, readOnly, limit });
       return reply.code(202).send(run);
     });
-    route('GET', '/runs', { querystring: bodySchema(s.pagination), response: s.response(200, s.list(s.run)) }, request => db.call('listRuns', request.user.id, request.query));
+    route('GET', '/runs', { querystring: bodySchema({ ...s.pagination, connectionId: { type: 'string', maxLength: 100 }, status: { type: 'string', enum: ['active','queued','starting','running','stop_requested','stopped','completed','failed','attention_required','interrupted'] } }), response: s.response(200, s.list(s.run)) }, request => db.call('listRuns', request.user.id, request.query));
     route('GET', '/runs/:id', { params: s.idParams, response: s.response(200, s.run) }, request => db.call('getRun', request.user.id, request.params.id));
     route('POST', '/runs/:id/stop', { params: s.idParams, response: s.response(202, s.run) }, async (request, reply) => {
       const run = await db.call('stopRun', request.user.id, request.params.id); supervisor.cancel(run.id); return reply.code(202).send(run);
@@ -122,6 +128,18 @@ export async function buildService(config, { supervise = true } = {}) {
       catch { throw new ServiceError(503, 'NOT_READY', 'Database is unavailable.'); }
       finally { clearTimeout(timeout); }
       return { ok: true };
+    });
+    const webDist = config.webDist === null ? null : config.webDist ?? fileURLToPath(new URL('../../web/dist/', import.meta.url));
+    let hasWeb = false;
+    if (webDist) { try { await access(join(webDist, 'index.html')); hasWeb = true; } catch { /* API-only startup remains supported. */ } }
+    if (hasWeb) await app.register(staticFiles, { root: webDist, prefix: '/', wildcard: false, index: false, decorateReply: false });
+    app.setNotFoundHandler((request, reply) => {
+      const path = new URL(request.url, 'http://127.0.0.1').pathname;
+      const reserved = /^\/(api|docs|health|ready|assets)(\/|$)/.test(path);
+      if (hasWeb && ['GET','HEAD'].includes(request.method) && !reserved && !extname(path)) {
+        return reply.header('Cache-Control', 'no-cache').type('text/html').send(createReadStream(join(webDist, 'index.html')));
+      }
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Resource not found.' } });
     });
     app.addHook('onClose', cleanup);
     await app.ready();

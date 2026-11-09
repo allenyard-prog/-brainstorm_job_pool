@@ -1,6 +1,6 @@
 # Backend API service
 
-The backend supports multiple users on one Windows computer. It binds to `127.0.0.1:3000`, uses the existing SQLite database, and runs scraping in separate processes. No frontend UI is included.
+The backend supports multiple users on one Windows computer. It binds to `127.0.0.1:3000`, uses the existing SQLite database, and runs scraping in separate processes. A React dashboard manages profiles, collection runs, collected jobs, and backend users.
 
 ## Initialize and run
 
@@ -11,7 +11,8 @@ Stop any existing CLI scraper before the first schema upgrade. Then run:
 # Imports accounts configured in .env and assigns their legacy records to that admin.
 .\npm.cmd run service:init -- --import-legacy
 
-# Start API and background-run supervisor.
+# Build the dashboard, then start Fastify and the background-run supervisor.
+.\npm.cmd run web:build
 .\npm.cmd run service
 ```
 
@@ -21,9 +22,35 @@ The first legacy schema upgrade creates `data/jobs.sqlite.pre-service.bak`. Migr
 
 Initialization generates a random `SERVICE_ENCRYPTION_KEY` in the ignored `.env`. Keep this key with your private database backups: losing it prevents decryption of job-site passwords. Do not change it after creating connections. Backend passwords are hashed with asynchronous scrypt; sessions are revocable and expire after 24 hours. For unattended initialization, supply `SERVICE_ADMIN_PASSWORD` in the environment instead of a command-line password.
 
-Open **http://127.0.0.1:3000/docs** for interactive OpenAPI documentation and **http://127.0.0.1:3000/docs/json** for the specification. Use the exact `127.0.0.1` origin; `localhost` is a different browser origin.
+Open **http://127.0.0.1:3000** and sign in with your backend account. Interactive OpenAPI documentation remains at **http://127.0.0.1:3000/docs**; the specification is at **http://127.0.0.1:3000/docs/json**. Use the exact `127.0.0.1` origin; `localhost` is a different browser origin.
 
 Backend authentication and job-site authentication are separate. Signing in to this API does not automatically authenticate a Jobright account. Each user adds their own connection and queues its authentication or collection operation. A collection run can authenticate as part of its normal workflow.
+
+## React dashboard
+
+The frontend is a JavaScript/JSX npm workspace in `web/`, using React, Vite, React Router, TanStack Query, and CSS design tokens. Run `.\npm.cmd install` after updating the checkout; dependencies share the root lockfile. Fresh installations use the existing `setup.cmd` workflow.
+
+- **Overview:** active and queued operations, counters from the current run, recent runs, and recent jobs. The displayed recent records are not global totals.
+- **Profiles:** a profile is your saved job-site connection. Add an account, authenticate it, replace its password, or open filtered jobs/history. Account email stays fixed; add another profile for a different identity. Credential changes are disabled while work is queued or active. Visible-browser sign-in is available for local verification.
+- **Collection runs:** choose a profile, browser/API transport, and a finite limit or continuous operation. **Mark saved jobs as Already applied** defaults to enabled. Clear it to save without changing the job-site tracking status. Stop and retry operate on the backend's durable queue.
+- **Collected jobs:** search titles/companies and filter by profile, site, or processing status. Filters and cursor pagination live in the URL. Detail tabs display descriptions, qualifications, company information, matching, and metadata. Raw source JSON is fetched only when expanded. Scraped HTML is displayed as text and links allow only HTTP/HTTPS.
+- **Users:** administrators can create/list backend users, but cannot browse another user's jobs or profiles.
+
+The dashboard and active run details poll every two seconds while visible. Run details stop polling on terminal status; events load incrementally and retain at most 500 rendered entries. Session cookies are managed by the browser. Passwords and authentication tokens are never saved in localStorage. Logout/session changes cancel requests and clear user-specific caches; expired sessions return to the originally requested route after sign-in.
+
+For development, use two terminals:
+
+```powershell
+# Terminal 1
+.\npm.cmd run service
+
+# Terminal 2
+.\npm.cmd run web:dev
+```
+
+Open **http://127.0.0.1:5173**. Vite proxies `/api`, `/health`, and `/ready` to Fastify. It rewrites the Origin header only for requests originating from that exact trusted frontend origin; the backend's origin validation remains enabled. `WEB_API_TARGET` may select another `http://127.0.0.1:<port>` backend for development/tests.
+
+For production, rebuild after frontend changes and restart the service if the build was absent at startup. Fastify serves `web/dist/`, including direct refreshes on `/runs/:id` and `/jobs/:id`. Missing assets and API resources retain real JSON 404 responses. API-only startup remains supported when no frontend build exists. Generated builds are ignored by Git.
 
 ## Endpoints
 
@@ -34,6 +61,7 @@ All application endpoints are under `/api/v1`. Cookies have `HttpOnly`, `SameSit
 | `POST /auth/login` | Sign in with email/password and set a session cookie |
 | `POST /auth/logout` | Revoke the current session and clear its cookie |
 | `GET /auth/me` | Current user without password/session material |
+| `GET /sites` | Enabled website plugins, names, transports, and supported operations |
 | `POST /users` | Administrator creates a user; password minimum 12 characters |
 | `GET /users` | Administrator lists users |
 | `POST /connections` | Save a site account using `site`, `email`, `password` |
@@ -66,7 +94,7 @@ Example collection body:
 
 Defaults are `transport: "browser"`, `readOnly: false`, and an unlimited run when `limit` is omitted or null. Non-read-only runs save jobs and mark them **Already applied** in the job site; they do not submit employer applications. API mode never silently falls back to browser scraping.
 
-`GET /jobs` accepts `limit` (default 20, maximum 100), opaque `cursor`, `connectionId`, `site`, title/company search `q`, and processing `status` (`saved`, `mark_pending`, `mark_confirmed`). Summaries exclude large detail/raw columns. Run history supports the same page-size limits and an opaque cursor. List responses contain `items` and `nextCursor`. Poll run details and events every two seconds for a future dashboard.
+`GET /jobs` accepts `limit` (default 20, maximum 100), opaque `cursor`, `connectionId`, `site`, title/company search `q`, and processing `status` (`saved`, `mark_pending`, `mark_confirmed`). Summaries exclude large detail/raw columns. Run history supports the same page-size limits and an opaque cursor, plus `connectionId` and lifecycle `status` filters. `status=active` includes queued, starting, running, and stop-requested operations. List responses contain `items` and `nextCursor`.
 
 ## Architecture and lifecycle
 
@@ -103,8 +131,16 @@ Invoke-RestMethod "$api/api/v1/auth/login" -Method Post -Headers $headers -Conte
 Invoke-RestMethod "$api/api/v1/connections" -WebSession $backendSession
 ```
 
-Request/response schemas are included in OpenAPI. A remote deployment, public registration, frontend UI, scheduling, and distributed workers are outside this version.
+Request/response schemas are included in OpenAPI. Remote deployment, public registration, scheduling, and distributed workers are outside this version.
 
 ## Verification
 
 Run `.\npm.cmd test`. Tests use temporary databases, managed fixture processes, and a local Jobright-shaped website. They cover authentication, expiry, rate limiting, ownership, encryption/tampering, pagination, limits, async API responsiveness, graceful and forced stops, crashes, restart recovery, pending-write retries, schema migration and real browser/API workers. They never authenticate to or update the real Jobright account.
+
+```powershell
+.\npm.cmd run web:test
+.\npm.cmd run web:build
+.\npm.cmd run web:e2e
+```
+
+Frontend component tests cover session changes/expiry, user cache isolation, collection options, filters, and safe detail rendering. Playwright runs the production build against temporary backend databases and fixture workers, covering collection controls, authentication, profile credentials, admin creation, isolation, detail refresh, and mobile layout. It never uses real Jobright credentials. Screenshots are written to the ignored `artifacts/frontend/` directory.

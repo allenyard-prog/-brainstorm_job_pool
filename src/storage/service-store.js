@@ -85,14 +85,19 @@ export class ServiceStore extends Store {
     if (!row) throw notFound(); return row;
   }
   getRun(userId, id) { return runDto(this.getRunRow(userId, id)); }
-  listRuns(userId, { cursor, limit = 20 } = {}) {
+  listRuns(userId, { cursor, limit = 20, connectionId, status } = {}) {
     // Queue timestamps are ISO strings; the cursor carries the unique last ID and timestamp.
     let before = null;
     if (cursor) {
       try { before = JSON.parse(Buffer.from(cursor, 'base64url').toString()); } catch { throw new ServiceError(400, 'INVALID_CURSOR', 'Invalid run cursor.'); }
       if (typeof before?.time !== 'string' || typeof before?.id !== 'string') throw new ServiceError(400, 'INVALID_CURSOR', 'Invalid run cursor.');
     }
-    const rows = this.db.prepare(`SELECT * FROM runs WHERE user_id=? ${before ? 'AND (queued_at<? OR (queued_at=? AND id<?))' : ''} ORDER BY queued_at DESC,id DESC LIMIT ?`).all(userId, ...(before ? [before.time, before.time, before.id] : []), limit + 1);
+    const clauses = ['user_id=?']; const params = [userId];
+    if (connectionId) { clauses.push('connection_id=?'); params.push(connectionId); }
+    if (status === 'active') clauses.push(`status IN ${active}`);
+    else if (status) { clauses.push('status=?'); params.push(status); }
+    if (before) { clauses.push('(queued_at<? OR (queued_at=? AND id<?))'); params.push(before.time, before.time, before.id); }
+    const rows = this.db.prepare(`SELECT * FROM runs WHERE ${clauses.join(' AND ')} ORDER BY queued_at DESC,id DESC LIMIT ?`).all(...params, limit + 1);
     const more = rows.length > limit; const items = rows.slice(0, limit);
     const last = items.at(-1);
     return { items: items.map(runDto), nextCursor: more ? Buffer.from(JSON.stringify({ time: last.queued_at, id: last.id })).toString('base64url') : null };

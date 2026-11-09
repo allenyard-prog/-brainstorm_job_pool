@@ -27,6 +27,7 @@ process.on('message', async message => {
     process.exit(2);
   }
   if (mode === 'complete') {
+    if (run.kind === 'authentication') { store.connectionStatus(run.connection_id, 'ready'); await finish('completed'); return; }
     const id = store.saveJob(run.site, run.account_key, { id: 'fixture', url: 'https://fixture.test/job', title: 'Fixture Engineer', company: 'Fixture Corp', details: { description: { text: 'Long detail '.repeat(10000) }, extra: { password: 'should-not-leak' } }, raw: { sessionToken: 'should-not-leak', retained: true } });
     store.transition(id, run.account_key, 'mark_pending'); store.transition(id, run.account_key, 'mark_confirmed', 'applied');
     store.progress(run.id, 'completed', { saved: 1, confirmed: 1, failed: 0 });

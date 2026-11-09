@@ -1,0 +1,13 @@
+:root {
+  --bg: #151b17;
+  --surface: #1b221d;
+  --surface-raised: #252e27;
+  --sidebar-bg: #121914;
+  --text: #e0e9db;
+  --muted: #879582;
+  --accent: #a7e6c2;
+  --line: #303a31;
+  --orange: #dfb38f;
+  --sidebar: 238px;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}

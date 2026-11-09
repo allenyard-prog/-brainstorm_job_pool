@@ -14,3 +14,13 @@ export async function loadPlugin(site, transport, { write = false } = {}) {
   }
   return plugin;
 }
+
+export async function listSites(sites = ['jobright']) {
+  return Promise.all(sites.map(async site => {
+    if (!/^[a-z][a-z0-9-]*$/.test(site)) throw new Error('Invalid plugin ID.');
+    const { default: definition } = await import(`../../plugins/${site}/index.js`);
+    if (definition.id !== site || !definition.capabilities) throw new Error(`Plugin '${site}' has invalid metadata.`);
+    return { id: definition.id, name: definition.name, transports: definition.capabilities.transports,
+      operations: definition.capabilities.operations };
+  }));
+}
