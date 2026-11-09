@@ -2,6 +2,17 @@
 
 Local Node.js 24 automation with interchangeable website plugins, browser and API transports, and SQLite storage. Jobright is implemented and has been inspected against the authenticated website.
 
+## Multi-user backend
+
+The Fastify backend adds cookie authentication, private site connections, asynchronous start/stop/retry APIs, run progress/events, and owner-scoped job queries. Scrapers run in separate processes; SQLite access for HTTP runs in a database worker thread.
+
+```powershell
+.\npm.cmd run service:init -- --import-legacy
+.\npm.cmd run service
+```
+
+Initialization prompts for the first administrator and can claim existing records for that administrator. Open **http://127.0.0.1:3000/docs** for the API. See [the backend guide](docs/backend.md) for account setup, endpoints, lifecycle behavior and migration details.
+
 ## Run on Windows
 
 A workspace-local Node.js runtime and Chromium are installed under `.tools/`. Use the wrapper so Node does not need to be on your PATH:

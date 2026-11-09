@@ -8,7 +8,10 @@ export function sanitize(value, secrets = []) {
   if (typeof value !== 'string') return value;
   let text = value;
   for (const secret of secrets.filter(Boolean)) text = text.split(secret).join('[REDACTED]');
-  return text.replace(/Bearer\s+[\w.\-]+/gi, 'Bearer [REDACTED]').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[EMAIL]');
+  return text.replace(/Bearer\s+[\w.\-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(authorization|cookie|set-cookie|x-[\w-]*token)\s*:\s*[^\r\n]+/gi, '$1: [REDACTED]')
+    .replace(/\b(access[_-]?token|refresh[_-]?token|session[_-]?token|token|password|passwd|secret)=([^\s&"'<>]+)/gi, '$1=[REDACTED]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[EMAIL]');
 }
 export function safeUrl(input) {
   const url = new URL(input);

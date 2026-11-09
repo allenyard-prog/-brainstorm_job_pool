@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtemp, access, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ServiceStore } from '../src/storage/service-store.js';
+import { Store } from '../src/storage/database.js';
+
+test('legacy migration preserves JSON, account-specific states and CLI access while withholding unclaimed data', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'job-service-migrate-'));
+  const path = join(directory, 'legacy.sqlite');
+  let store;
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`CREATE TABLE jobs(id INTEGER PRIMARY KEY,site TEXT,source_job_id TEXT,url TEXT,title TEXT,company TEXT,details_json TEXT,raw_json TEXT,first_seen_at TEXT,last_scraped_at TEXT,UNIQUE(site,source_job_id));
+      CREATE TABLE job_processing(job_id INTEGER,account_key TEXT,state TEXT,website_status TEXT,last_error TEXT,updated_at TEXT,PRIMARY KEY(job_id,account_key));
+      CREATE TABLE runs(id TEXT PRIMARY KEY,site TEXT,account_key TEXT,transport TEXT,started_at TEXT,ended_at TEXT,status TEXT,counters_json TEXT,error TEXT);`);
+    const details = { description: { text: 'Long migrated information '.repeat(10000) }, nested: { future: [1, 2, 3] } };
+    legacy.prepare('INSERT INTO jobs VALUES(1,?,?,?,?,?,?,?,?,?)').run('jobright', 'source', 'https://fixture.test/job', 'Old job', 'Company', JSON.stringify(details), '{"preserved":true}', '2026-11-01', '2026-11-01');
+    legacy.prepare('INSERT INTO job_processing VALUES(?,?,?,?,?,?)').run(1, 'account-a', 'mark_pending', null, null, '2026-11-01');
+    legacy.prepare('INSERT INTO job_processing VALUES(?,?,?,?,?,?)').run(1, 'account-b', 'saved', null, null, '2026-11-01');
+    legacy.prepare('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)').run('old', 'jobright', 'account-a', 'browser', '2026-11-01', null, 'running', '{"saved":1}', null);
+    legacy.close();
+    store = new ServiceStore(path);
+    await access(path + '.pre-service.bak');
+    const admin = store.createUser({ email: 'admin@fixture.test', passwordHash: 'test', role: 'admin', bootstrap: true });
+    const bob = store.createUser({ email: 'bob@fixture.test', passwordHash: 'test' });
+    assert.equal(store.listJobs(admin.id).items.length, 0);
+    const [connection] = store.claimLegacy(admin.id, [{ site: 'jobright', accountKey: 'account-a', label: 'Legacy account', encryptedCredentials: '{}' }]);
+    assert.equal(store.listJobs(admin.id).items[0].id, 1);
+    assert.deepEqual(store.jobDetail(admin.id, 1).details, details);
+    assert.equal(store.state('jobright', 'account-a', 'source').state, 'mark_pending');
+    assert.equal(store.state('jobright', 'account-b', 'source').state, 'saved');
+    assert.equal(store.getRun(admin.id, 'old').status, 'interrupted');
+    assert.equal(store.listJobs(bob.id).items.length, 0);
+    assert.throws(() => store.jobDetail(bob.id, 1), /not found/);
+    const other = store.createConnection({ userId: bob.id, site: 'jobright', accountKey: 'account-a', label: 'Other connection', encryptedCredentials: '{}' });
+    const scoped = new Store(path, { userId: bob.id, connectionId: other.id });
+    const id = scoped.saveJob('jobright', 'account-a', { id: 'source', url: 'https://fixture.test/job', title: 'Other personalized title', details });
+    assert.notEqual(id, 1); scoped.close();
+    assert.equal(store.jobDetail(admin.id, 1).title, 'Old job');
+    assert.equal(store.listJobs(bob.id).items.length, 1);
+    assert.equal(store.claimLegacy(admin.id, [{ site: 'jobright', accountKey: 'account-a', label: 'Legacy', encryptedCredentials: '{}' }])[0].id, connection.id);
+    store.close(); store = new Store(path);
+    assert.equal(store.state('jobright', 'account-a', 'source').state, 'mark_pending');
+    assert.equal(store.saveJob('jobright', 'account-a', { id: 'source', title: 'CLI update', url: 'https://fixture.test/job', details }), 1);
+    assert.equal(store.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});

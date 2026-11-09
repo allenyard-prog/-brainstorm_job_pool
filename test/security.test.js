@@ -11,3 +11,8 @@ test('diagnostics redact nested credentials, tokens, emails, and known secret va
   assert.ok(!safeUrl('https://example.test/api?token=abc&page=1').includes('token=abc'));
   assert.equal(accountKey(' A@EXAMPLE.COM '), accountKey('a@example.com'));
 });
+test('plain-text HTTP errors redact cookies, authorization headers and query tokens', () => {
+  const message = sanitize('Request failed\nCookie: session=private-cookie\nAuthorization: Basic private-auth\nhttps://example.test/?token=private-token&job=123');
+  for (const secret of ['private-cookie','private-auth','private-token']) assert.ok(!message.includes(secret));
+  assert.ok(message.includes('job=123'));
+});
