@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { mkdir, access } from "node:fs/promises";
+import { mkdir, access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { serviceFixture, backendPassword } from "./helpers/service-fixture.js";
 import { ServiceStore } from "../src/storage/service-store.js";
 import { accountKey } from "../src/core/security.js";
 import { encryptCredentials } from "../src/service/crypto.js";
 
-async function browserFixture() {
+async function browserFixture({ timezoneId } = {}) {
   await access(resolve("web/dist/index.html"));
   const f = await serviceFixture({
     webDist: resolve("web/dist"),
@@ -109,6 +109,7 @@ async function browserFixture() {
   });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1050 },
+    ...(timezoneId ? { timezoneId } : {}),
   });
   page.setDefaultTimeout(10000);
   const errors = [];
@@ -140,6 +141,178 @@ async function browserFixture() {
     },
   };
 }
+
+test("browser UI: filters persist, CSV and Sheets cover every page, and assignment persists", async () => {
+  const f = await browserFixture({ timezoneId: "America/New_York" });
+  try {
+    const account = accountKey(f.aliceProfile.label);
+    const store = new ServiceStore(f.config.dbPath, {
+      userId: f.users.alice.id,
+      connectionId: f.aliceProfile.id,
+    });
+    try {
+      for (let index = 0; index < 23; index++) {
+        const id = store.saveJob("jobright", account, {
+          id: `export-${index}`,
+          title: `Export Engineer ${index}`,
+          company: "Export Company",
+          url: `https://example.test/job/${index}`,
+          details: { description: { text: "Export data." } },
+        });
+        store.db
+          .prepare("UPDATE jobs SET last_scraped_at=? WHERE id=?")
+          .run(
+            index === 22
+              ? "2026-11-07T12:00:00.000Z"
+              : "2026-11-08T12:00:00.000Z",
+            id,
+          );
+      }
+    } finally {
+      store.close();
+    }
+    await f.login();
+    const { page } = f;
+    await page
+      .getByRole("link", { name: "Collected jobs", exact: true })
+      .click();
+    await page
+      .getByRole("searchbox", { name: "Search jobs" })
+      .fill("Export Engineer");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByLabel("Collected from").fill("2026-11-08T07:00");
+    await page.getByLabel("Collected to").fill("2026-11-08T08:00");
+    await page.getByRole("button", { name: "Apply time filter" }).click();
+    await page.waitForFunction(
+      () =>
+        new URL(location.href).searchParams.get("collectedFrom") ===
+        "2026-11-08T12:00:00.000Z",
+    );
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 2,
+    );
+    const downloadReady = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download CSV", exact: true })
+      .click();
+    const download = await downloadReady;
+    assert.equal(download.suggestedFilename(), "gather-jobs.csv");
+    const csv = await readFile(await download.path(), "utf8");
+    assert.equal(csv.trim().split("\r\n").length, 23);
+    assert.ok(csv.includes('"Export Engineer 0"'));
+    assert.ok(csv.includes('"Export Engineer 21"'));
+    assert.ok(!csv.includes('"Export Engineer 22"'));
+    assert.ok(!csv.includes("Senior Data Engineer"));
+    assert.ok(!csv.includes("Bob-only opportunity"));
+    assert.ok(csv.includes("Export data."));
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text) => {
+            window.copiedJobs = text;
+          },
+        },
+      });
+    });
+    await page
+      .getByRole("button", { name: "Copy Available Jobs", exact: true })
+      .click();
+    await page
+      .getByText("22 jobs copied. Paste into Google Sheets with Ctrl+V.", {
+        exact: true,
+      })
+      .waitFor();
+    const copied = await page.evaluate(() => window.copiedJobs);
+    const sheet = copied
+      .trimEnd()
+      .split("\n")
+      .map((row) => row.split("\t"));
+    assert.deepEqual(sheet[0], ["Company Name", "Job Title", "Link"]);
+    assert.equal(sheet.length, 23);
+    assert.ok(
+      sheet
+        .slice(1)
+        .every(
+          (row) =>
+            row.length === 3 &&
+            row[0] === "Export Company" &&
+            row[2].startsWith("https://example.test/job/"),
+        ),
+    );
+    await page
+      .getByRole("button", { name: "Assign all Jobs", exact: true })
+      .click();
+    await page.getByText("22 jobs assigned.", { exact: true }).waitFor();
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody .status-assigned").length === 20,
+    );
+    assert.equal(new URL(page.url()).searchParams.has("cursor"), false);
+    await page
+      .getByRole("button", { name: "Copy Available Jobs", exact: true })
+      .click();
+    await page
+      .getByText("22 jobs copied. Paste into Google Sheets with Ctrl+V.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(await page.evaluate(() => window.copiedJobs), copied);
+    await page
+      .getByRole("combobox", { name: "Tracking status" })
+      .selectOption("assigned");
+    await page.waitForFunction(
+      () => new URL(location.href).searchParams.get("status") === "assigned",
+    );
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "Collected opportunities" })
+      .waitFor();
+    assert.equal(
+      new Date(
+        await page.getByLabel("Collected from").inputValue(),
+      ).toISOString(),
+      "2026-11-08T12:00:00.000Z",
+    );
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody .status-assigned").length === 20,
+    );
+    await mkdir("artifacts/frontend", { recursive: true });
+    await page.screenshot({
+      path: "artifacts/frontend/jobs-filters-desktop.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".sidebar").getBoundingClientRect().right <= 0,
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    await page.screenshot({
+      path: "artifacts/frontend/jobs-filters-mobile.png",
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Clear time filter" }).click();
+    await page.waitForFunction(
+      () => !new URL(location.href).searchParams.has("collectedFrom"),
+    );
+    await page.waitForFunction(
+      () => document.querySelector('input[name="collectedFrom"]').value === "",
+    );
+    const url = new URL(page.url());
+    assert.equal(url.searchParams.get("q"), "Export Engineer");
+    assert.equal(url.searchParams.has("cursor"), false);
+    assert.equal(await page.getByLabel("Collected from").inputValue(), "");
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});
 
 test("browser UI: collect, navigate while running, view details, stop/retry and render mobile", async () => {
   const f = await browserFixture();

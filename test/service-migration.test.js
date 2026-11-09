@@ -48,3 +48,34 @@ test('legacy migration preserves JSON, account-specific states and CLI access wh
     assert.equal(store.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('version-one databases gain persistent assignment without changing content or collection processing', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'job-assignment-migrate-'));
+  const path = join(directory, 'jobs.sqlite');
+  let store;
+  try {
+    store = new ServiceStore(path);
+    const user = store.createUser({ email: 'alice@fixture.test', passwordHash: 'test' });
+    store.createConnection({ userId: user.id, site: 'jobright', accountKey: 'a', label: 'Account', encryptedCredentials: '{}', cliDefault: true });
+    const job = { id: 'persistent', title: 'Engineer', url: 'https://example.test/job', details: { description: { text: 'Retained details.' } } };
+    const id = store.saveJob('jobright', 'a', job);
+    store.transition(id, 'a', 'mark_pending');
+    store.db.exec('ALTER TABLE jobs DROP COLUMN assigned_at; PRAGMA user_version=1');
+    store.close();
+    store = new ServiceStore(path);
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 2);
+    assert.equal(store.jobDetail(user.id, id).assignedAt, null);
+    assert.deepEqual(store.jobDetail(user.id, id).details, job.details);
+    assert.equal(store.assignJobs(user.id).assignedCount, 1);
+    const assignedAt = store.jobDetail(user.id, id).assignedAt;
+    store.close();
+    store = new ServiceStore(path);
+    assert.equal(store.saveJob('jobright', 'a', { ...job, title: 'Refreshed title' }), id);
+    assert.equal(store.jobDetail(user.id, id).assignedAt, assignedAt);
+    assert.equal(store.state('jobright', 'a', job.id).state, 'mark_pending');
+    store.transition(id, 'a', 'mark_confirmed', 'applied');
+    assert.equal(store.jobDetail(user.id, id).assignedAt, assignedAt);
+    assert.equal(store.jobDetail(user.id, id).processingState, 'mark_confirmed');
+    assert.equal(store.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});

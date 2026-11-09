@@ -2,21 +2,49 @@ import { describe, it, expect, vi } from "vitest";
 import { api, safeLink, dateLabel, mergeEvents } from "../api.js";
 
 describe("API boundaries and metadata helpers", () => {
-  it("sends cookie-authenticated JSON once and exposes duplicate run conflicts", async () => {
+  it("reads successful downloads as blobs and preserves session-expiry handling for export failures", async () => {
     const fetch = vi
       .fn()
-      .mockResolvedValue(
+      .mockResolvedValueOnce(
+        new Response("title,company\r\nEngineer,Example\r\n", {
+          headers: { "Content-Type": "text/csv" },
+        }),
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            error: {
-              code: "RUN_EXISTS",
-              message: "Already queued",
-              details: { runId: "existing" },
-            },
+            error: { code: "UNAUTHENTICATED", message: "Sign in again." },
           }),
-          { status: 409 },
+          { status: 401 },
         ),
       );
+    vi.stubGlobal("fetch", fetch);
+    const blob = await api("/jobs/export", { responseType: "blob" });
+    expect(await blob.text()).toContain("Engineer,Example");
+    const expired = vi.fn();
+    window.addEventListener("gather:session-expired", expired);
+    try {
+      await expect(
+        api("/jobs/export", { responseType: "blob" }),
+      ).rejects.toMatchObject({ status: 401, message: "Sign in again." });
+      expect(expired).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("gather:session-expired", expired);
+    }
+  });
+  it("sends cookie-authenticated JSON once and exposes duplicate run conflicts", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "RUN_EXISTS",
+            message: "Already queued",
+            details: { runId: "existing" },
+          },
+        }),
+        { status: 409 },
+      ),
+    );
     vi.stubGlobal("fetch", fetch);
     await expect(
       api("/runs", { method: "POST", body: { readOnly: true } }),

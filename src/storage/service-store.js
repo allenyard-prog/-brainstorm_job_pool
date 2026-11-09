@@ -16,6 +16,26 @@ export const userDto = row => ({ id: row.id, email: row.email, role: row.role, c
 export const connectionDto = row => ({ id: row.id, site: row.site, label: row.label, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
 export const runDto = row => ({ id: row.id, connectionId: row.connection_id, site: row.site, kind: row.kind, transport: row.transport, options: JSON.parse(row.options_json), status: row.status, phase: row.phase, queuedAt: row.queued_at, startedAt: row.started_at, endedAt: row.ended_at, heartbeatAt: row.heartbeat_at, counters: JSON.parse(row.counters_json), error: row.error ? { code: row.error_code ?? 'EXECUTION_ERROR', message: row.error } : null, forced: !!row.forced, parentRunId: row.parent_run_id });
 
+function jobWhere(userId, { cursor, site, connectionId, q, status, collectedFrom, collectedTo, availableOnly = false } = {}) {
+  const clauses = ['j.user_id=?', 'j.id<?'], params = [userId, cursorDecode(cursor)];
+  const from = collectedFrom ? new Date(collectedFrom) : null, to = collectedTo ? new Date(collectedTo) : null;
+  if ((from && !Number.isFinite(from.valueOf())) || (to && !Number.isFinite(to.valueOf())) || (from && to && from > to)) {
+    throw new ServiceError(400, 'INVALID_TIME_RANGE', 'Collected from must be before or equal to collected to.');
+  }
+  if (from) { clauses.push('j.last_scraped_at>=?'); params.push(from.toISOString()); }
+  if (to) { clauses.push('j.last_scraped_at<=?'); params.push(to.toISOString()); }
+  if (site) { clauses.push('j.site=?'); params.push(site); }
+  if (connectionId) { clauses.push('j.connection_id=?'); params.push(connectionId); }
+  if (q) { clauses.push('(j.title LIKE ? ESCAPE \'\\\' OR j.company LIKE ? ESCAPE \'\\\')'); const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`; params.push(pattern, pattern); }
+  if (status === 'assigned') clauses.push('j.assigned_at IS NOT NULL');
+  else if (status) {
+    clauses.push('j.assigned_at IS NULL');
+    if (status !== 'available') { clauses.push('p.state=?'); params.push(status); }
+  }
+  if (availableOnly) clauses.push('j.assigned_at IS NULL');
+  return { where: clauses.join(' AND '), params };
+}
+
 export class ServiceStore extends Store {
   transaction(fn) {
     this.db.exec('BEGIN IMMEDIATE');
@@ -161,15 +181,16 @@ export class ServiceStore extends Store {
     const rows = this.db.prepare('SELECT id,type,payload_json,created_at FROM run_events WHERE user_id=? AND run_id=? AND id>? ORDER BY id LIMIT ?').all(userId, runId, after, limit);
     return { items: rows.map(row => ({ id: row.id, type: row.type, payload: JSON.parse(row.payload_json), createdAt: row.created_at })), nextCursor: rows.at(-1)?.id ?? after };
   }
-  listJobs(userId, { cursor, limit = 20, site, connectionId, q, status } = {}) {
-    const clauses = ['j.user_id=?', 'j.id<?']; const params = [userId, cursorDecode(cursor)];
-    if (site) { clauses.push('j.site=?'); params.push(site); }
-    if (connectionId) { clauses.push('j.connection_id=?'); params.push(connectionId); }
-    if (q) { clauses.push('(j.title LIKE ? ESCAPE \'\\\' OR j.company LIKE ? ESCAPE \'\\\')'); const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`; params.push(pattern, pattern); }
-    if (status) { clauses.push('p.state=?'); params.push(status); }
-    const rows = this.db.prepare(`SELECT j.id,j.connection_id,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,p.state,p.website_status FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${clauses.join(' AND ')} ORDER BY j.id DESC LIMIT ?`).all(...params, limit + 1);
-    const items = rows.slice(0, limit).map(jobDto);
+  listJobs(userId, { limit = 20, includeDetails = false, ...filters } = {}) {
+    const { where, params } = jobWhere(userId, filters);
+    const rows = this.db.prepare(`SELECT j.id,j.connection_id,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,p.state,p.website_status${includeDetails ? ',j.details_json' : ''} FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} ORDER BY j.id DESC LIMIT ?`).all(...params, limit + 1);
+    const items = rows.slice(0, limit).map(row => ({ ...jobDto(row), ...(includeDetails ? { details: JSON.parse(row.details_json) } : {}) }));
     return { items, nextCursor: rows.length > limit ? cursorEncode(items.at(-1).id) : null };
+  }
+  assignJobs(userId, filters = {}) {
+    const { where, params } = jobWhere(userId, { ...filters, availableOnly: true });
+    const result = this.db.prepare(`UPDATE jobs SET assigned_at=? WHERE id IN (SELECT j.id FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where})`).run(now(), ...params);
+    return { assignedCount: Number(result.changes) };
   }
   jobDetail(userId, id, includeRaw = false) {
     const row = this.db.prepare('SELECT j.*,p.state,p.website_status FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.id=? AND j.user_id=?').get(id, userId);
@@ -188,6 +209,6 @@ export class ServiceStore extends Store {
     }));
   }
 }
-function jobDto(row) { return { id: row.id, connectionId: row.connection_id, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, processingState: row.state ?? null, websiteStatus: row.website_status ?? null }; }
+function jobDto(row) { return { id: row.id, connectionId: row.connection_id, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null }; }
 
-export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','jobDetail','addEvent'];
+export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent'];

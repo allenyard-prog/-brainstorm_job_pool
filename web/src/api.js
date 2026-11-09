@@ -6,7 +6,13 @@ export class ApiError extends Error {
 }
 export async function api(
   path,
-  { method = "GET", body, signal, publicRequest = false } = {},
+  {
+    method = "GET",
+    body,
+    signal,
+    publicRequest = false,
+    responseType = "json",
+  } = {},
 ) {
   let response;
   try {
@@ -25,6 +31,8 @@ export async function api(
       "Cannot reach the backend. Check that the service is running and try again.",
     );
   }
+  if (response.ok && responseType === "blob") return response.blob();
+  if (response.ok && responseType === "text") return response.text();
   const result = await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401 && !publicRequest)

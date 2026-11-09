@@ -980,7 +980,8 @@ tbody tr:hover {
   background: #8dc07d0a;
   border-color: #90ba7b24;
 }
-.status-queued {
+.status-queued,
+.status-assigned {
   color: #c0b5d0;
   background: #a087bc0b;
   border-color: #a58fbd24;
@@ -1153,6 +1154,52 @@ tbody tr:hover {
 }
 .jobs-filters .select-label select {
   max-width: 180px;
+}
+.download-jobs {
+  margin-left: auto;
+}
+.job-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding-top: 3px;
+}
+.time-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 23px 19px;
+  border-bottom: 1px solid var(--line);
+}
+.time-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.time-filters input {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.time-filters > .text-button {
+  min-height: 32px;
+}
+.time-filter-help {
+  align-self: center;
+  color: var(--muted);
+  font-size: 10px;
 }
 .back-link {
   display: inline-flex;
@@ -2177,6 +2224,12 @@ tbody tr:hover {
   .filter-bar {
     padding: 17px;
     gap: 9px;
+  }
+  .time-filters {
+    padding: 0 17px 17px;
+  }
+  .time-filters label {
+    flex: 1 1 220px;
   }
   .filter-caption {
     display: none;

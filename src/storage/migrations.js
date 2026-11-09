@@ -9,7 +9,7 @@ CREATE TABLE backend_sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL 
 CREATE INDEX session_expiry ON backend_sessions(expires_at);
 CREATE TABLE connections(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),site TEXT NOT NULL,account_key TEXT NOT NULL,label TEXT NOT NULL,encrypted_credentials TEXT NOT NULL,auth_status TEXT NOT NULL DEFAULT 'not_authenticated',cli_default INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(user_id,site,account_key));
 CREATE UNIQUE INDEX cli_connection ON connections(site,account_key) WHERE cli_default=1;
-CREATE TABLE jobs(id INTEGER PRIMARY KEY,scope_key TEXT NOT NULL,connection_id TEXT REFERENCES connections(id),user_id TEXT REFERENCES users(id),account_key TEXT NOT NULL,site TEXT NOT NULL,source_job_id TEXT NOT NULL,url TEXT NOT NULL,title TEXT NOT NULL,company TEXT,details_json TEXT NOT NULL CHECK(json_valid(details_json)),raw_json TEXT CHECK(raw_json IS NULL OR json_valid(raw_json)),first_seen_at TEXT NOT NULL,last_scraped_at TEXT NOT NULL,UNIQUE(scope_key,source_job_id));
+CREATE TABLE jobs(id INTEGER PRIMARY KEY,scope_key TEXT NOT NULL,connection_id TEXT REFERENCES connections(id),user_id TEXT REFERENCES users(id),account_key TEXT NOT NULL,site TEXT NOT NULL,source_job_id TEXT NOT NULL,url TEXT NOT NULL,title TEXT NOT NULL,company TEXT,details_json TEXT NOT NULL CHECK(json_valid(details_json)),raw_json TEXT CHECK(raw_json IS NULL OR json_valid(raw_json)),first_seen_at TEXT NOT NULL,last_scraped_at TEXT NOT NULL,assigned_at TEXT,UNIQUE(scope_key,source_job_id));
 CREATE TABLE job_processing(job_id INTEGER NOT NULL REFERENCES jobs(id),account_key TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('saved','mark_pending','mark_confirmed')),website_status TEXT,last_error TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(job_id,account_key));
 CREATE TABLE runs(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),connection_id TEXT REFERENCES connections(id),site TEXT NOT NULL,account_key TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'collection',transport TEXT NOT NULL,options_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(options_json)),queued_at TEXT NOT NULL,started_at TEXT,ended_at TEXT,status TEXT NOT NULL CHECK(status IN ('queued','starting','running','stop_requested','stopped','completed','failed','attention_required','interrupted')),counters_json TEXT NOT NULL DEFAULT '{"saved":0,"confirmed":0,"failed":0}' CHECK(json_valid(counters_json)),phase TEXT,error TEXT,error_code TEXT,heartbeat_at TEXT,supervisor_id TEXT,pid INTEGER,stop_requested_at TEXT,forced INTEGER NOT NULL DEFAULT 0,parent_run_id TEXT REFERENCES runs(id),available_at INTEGER NOT NULL DEFAULT 0);
 CREATE UNIQUE INDEX one_connection_run ON runs(connection_id) WHERE status IN ('queued','starting','running','stop_requested');
@@ -26,8 +26,18 @@ CREATE INDEX processing_state ON job_processing(account_key,state);
 
 export function migrate(db, path) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 1) throw new Error('Database schema is newer than this application.');
-  if (version === 1) return;
+  if (version > 2) throw new Error('Database schema is newer than this application.');
+  if (version === 2) return;
+  if (version === 1) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare('PRAGMA user_version').get().user_version === 1) {
+        db.exec('ALTER TABLE jobs ADD COLUMN assigned_at TEXT; PRAGMA user_version=2');
+      }
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    return;
+  }
   const legacy = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'").get();
   if (legacy && path !== ':memory:') {
     for (const row of db.prepare("SELECT DISTINCT site,account_key FROM runs WHERE status='running'").all()) {
@@ -45,7 +55,7 @@ export function migrate(db, path) {
   db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE');
   try {
     // Another process may have completed migration while this connection waited.
-    if (db.prepare('PRAGMA user_version').get().user_version === 1) { db.exec('COMMIT; PRAGMA foreign_keys=ON'); return; }
+    if (db.prepare('PRAGMA user_version').get().user_version >= 1) { db.exec('COMMIT; PRAGMA foreign_keys=ON'); return migrate(db, path); }
     let jobs = [], processing = [], runs = [];
     if (legacy) {
       jobs = db.prepare('SELECT * FROM jobs').all();
@@ -71,6 +81,6 @@ export function migrate(db, path) {
       const status = run.status === 'paused' ? 'attention_required' : run.status === 'running' ? 'interrupted' : run.status;
       db.prepare('INSERT INTO runs(id,site,account_key,transport,queued_at,started_at,ended_at,status,counters_json,error) VALUES(?,?,?,?,?,?,?,?,?,?)').run(run.id, run.site, run.account_key, run.transport, run.started_at, run.started_at, run.ended_at, status, run.counters_json, run.error);
     }
-    db.exec('PRAGMA user_version=1; COMMIT; PRAGMA foreign_keys=ON');
+    db.exec('PRAGMA user_version=2; COMMIT; PRAGMA foreign_keys=ON');
   } catch (error) { db.exec('ROLLBACK; PRAGMA foreign_keys=ON'); throw error; }
 }

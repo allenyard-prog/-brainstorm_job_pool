@@ -17,7 +17,7 @@ The CLI resolves an imported account's `cli_default` connection when available. 
 | `users` | UUID `id`; unique case-insensitive email; password hash; role; creation time | Backend identities; roles are `admin` and `user` |
 | `backend_sessions` | Hashed token; owning user; expiry in epoch milliseconds | Revocable backend sessions; plaintext token is not stored |
 | `connections` | UUID `id`; owner; website; account key; label; encrypted credentials; auth status; CLI mapping | Saved job-site accounts |
-| `jobs` | Integer `id`; scope/owner/connection; website/source ID; URL/title/company; details/raw JSON; collection times | Collected job content |
+| `jobs` | Integer `id`; scope/owner/connection; website/source ID; URL/title/company; details/raw JSON; collection times; nullable `assigned_at` | Collected job content and local assignment |
 | `job_processing` | Composite `(job_id, account_key)`; state; website status; error; update time | Local processing and external tracking state |
 | `runs` | UUID `id`; owner/connection; kind/transport/options; lifecycle; counters; phase; execution metadata | Durable queue and execution history |
 | `run_events` | Increasing integer `id`; run/owner; event type; JSON payload; creation time | Incremental sanitized progress history |
@@ -54,6 +54,8 @@ Frequently queried values are ordinary columns. Flexible content lives in JSON-e
 Do not invent missing facts, truncate long descriptions, infer salary currency/period, or convert relative posting text into a guessed timestamp. Browser company data can contain `name`, `text`, and `links`; API company data can contain `companyName`, `companyDesc`, and other source fields. Matching data likewise supports browser `charts` and API scores/recommendations.
 
 `saveJob()` validates identity, URL, title, and nonempty description, then transactionally upserts content and inserts processing state if absent. It preserves the first-seen timestamp and existing processing state while updating last-scraped time and content.
+
+Schema version 2 adds the nullable `jobs.assigned_at` column to existing version-1 databases. A timestamp means the job is locally Assigned; null means Available. Bulk assignment updates only matching jobs owned by the current user in one statement, preserving existing assignment timestamps. Re-scraping a job preserves its assignment. API summaries and details expose this as `assignedAt`; Tracking displays Assigned when present and otherwise displays the processing state. Assignment never replaces `job_processing.state`, so pending external updates and collection recovery continue to work.
 
 List APIs omit large detail/raw columns. The job detail API parses `details_json`; `includeRaw=true` adds parsed, redacted raw data. The frontend displays text and lazily loads raw JSON. JSON/CSV exports are derived from SQLite.
 

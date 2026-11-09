@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { unlink, access } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { AsyncStore } from '../storage/async-store.js';
 import { Supervisor } from './supervisor.js';
@@ -17,6 +18,7 @@ import { accountKey } from '../core/security.js';
 import { hashPassword, verifyPassword, hashToken, encryptCredentials, scrubSecrets } from './crypto.js';
 import { ServiceError } from './errors.js';
 import * as s from './schemas.js';
+import { jobCsv, jobTsv } from './job-export.js';
 
 const bodySchema = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
 const empty = { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } } };
@@ -119,7 +121,20 @@ export async function buildService(config, { supervise = true } = {}) {
       return reply.code(202).send(run);
     });
     route('GET', '/runs/:id/events', { params: s.idParams, querystring: bodySchema({ after: { type: 'integer', minimum: 0, default: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }), response: s.response(200, { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: { type: 'integer' }, type: { type: 'string' }, payload: { type: 'object', additionalProperties: true }, createdAt: { type: 'string' } } } }, nextCursor: { type: 'integer' } } }) }, request => db.call('events', request.user.id, request.params.id, request.query));
-    route('GET', '/jobs', { querystring: bodySchema({ ...s.pagination, site: { type: 'string', maxLength: 100 }, connectionId: { type: 'string', maxLength: 100 }, q: { type: 'string', maxLength: 200 }, status: { type: 'string', enum: ['saved','mark_pending','mark_confirmed'] } }), response: s.response(200, s.list(s.job)) }, request => db.call('listJobs', request.user.id, request.query));
+    route('GET', '/jobs', { querystring: bodySchema({ ...s.pagination, ...s.jobFilters }), response: s.response(200, s.list(s.job)) }, request => db.call('listJobs', request.user.id, request.query));
+    route('POST', '/jobs/assign', { body: bodySchema(s.jobFilters), response: s.response(200, bodySchema({ assignedCount: { type: 'integer', minimum: 0 } }, ['assignedCount'])) }, request => db.call('assignJobs', request.user.id, request.body));
+    route('GET', '/jobs/clipboard', { querystring: bodySchema(s.jobFilters), response: s.response(200, { type: 'string' }) }, async (request, reply) => {
+      const firstPage = await db.call('listJobs', request.user.id, { ...request.query, limit: 100 });
+      return reply.type('text/plain; charset=utf-8').header('Cache-Control', 'private, no-store')
+        .send(Readable.from(jobTsv(db, request.user.id, request.query, firstPage)));
+    });
+    route('GET', '/jobs/export', { querystring: bodySchema(s.jobFilters), response: s.response(200, { type: 'string' }) }, async (request, reply) => {
+      const firstPage = await db.call('listJobs', request.user.id, { ...request.query, limit: 100, includeDetails: true });
+      return reply.type('text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="gather-jobs.csv"')
+        .header('Cache-Control', 'private, no-store')
+        .send(Readable.from(jobCsv(db, request.user.id, request.query, firstPage)));
+    });
     route('GET', '/jobs/:id', { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }, querystring: bodySchema({ includeRaw: { type: 'boolean', default: false } }), response: s.response(200, s.detail) }, async request => scrubSecrets(await db.call('jobDetail', request.user.id, request.params.id, request.query.includeRaw)));
     app.get('/health', { schema: { response: { 200: empty } } }, async () => ({ ok: true }));
     app.get('/ready', { schema: { response: { 200: empty, 503: s.error } } }, async () => {

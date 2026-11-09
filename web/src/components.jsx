@@ -38,6 +38,13 @@ export function Icon({ name, size = 18, ...props }) {
       </>
     ),
     plus: <path d="M12 5v14M5 12h14" />,
+    download: <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />,
+    copy: (
+      <>
+        <rect x="8" y="8" width="13" height="13" rx="2" />
+        <path d="M16 8V3H3v13h5" />
+      </>
+    ),
     arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
     chevron: <path d="m9 5 7 7-7 7" />,
     external: (
@@ -131,6 +138,7 @@ const labels = {
   not_authenticated: "Sign-in needed",
   authenticating: "Signing in",
   saved: "Saved",
+  assigned: "Assigned",
   mark_pending: "Update unconfirmed",
   mark_confirmed: "Marked applied",
 };
@@ -571,7 +579,9 @@ export function JobsTable({ jobs, profiles = [] }) {
                   ?.label ?? job.site}
               </td>
               <td>
-                <Status value={job.processingState} />
+                <Status
+                  value={job.assignedAt ? "assigned" : job.processingState}
+                />
               </td>
               <td className="secondary nowrap">
                 {dateLabel(job.lastScrapedAt)}

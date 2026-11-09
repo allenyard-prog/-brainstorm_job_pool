@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Link,
   useLocation,
   useOutletContext,
   useParams,
 } from "react-router-dom";
-import { useFilters, useResource } from "../data.js";
-import { dateLabel, safeLink } from "../api.js";
+import { invalidateJobs, useFilters, useResource } from "../data.js";
+import { useAuth } from "../auth.jsx";
+import { api, queryString, dateLabel, safeLink } from "../api.js";
 import {
   Icon,
   PageHead,
@@ -20,6 +22,14 @@ import {
   SectionHead,
 } from "../components.jsx";
 
+function localDateTime(value) {
+  const date = new Date(value);
+  if (!value || !Number.isFinite(date.valueOf())) return "";
+  return new Date(date.valueOf() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 19);
+}
+
 export function Jobs() {
   const { profiles, live, openCollection } = useOutletContext(),
     filters = useFilters(),
@@ -27,19 +37,162 @@ export function Jobs() {
   const connectionId = filters.params.get("connectionId") ?? "",
     site = filters.params.get("site") ?? "",
     status = filters.params.get("status") ?? "",
-    q = filters.params.get("q") ?? "";
+    q = filters.params.get("q") ?? "",
+    collectedFrom = filters.params.get("collectedFrom") ?? "",
+    collectedTo = filters.params.get("collectedTo") ?? "";
+  const jobFilters = {
+    connectionId,
+    site,
+    status,
+    q,
+    collectedFrom,
+    collectedTo,
+  };
+  const [downloading, setDownloading] = useState(false),
+    [downloadError, setDownloadError] = useState(null),
+    [timeError, setTimeError] = useState(null),
+    [bulkAction, setBulkAction] = useState(null),
+    [bulkError, setBulkError] = useState(null),
+    [feedback, setFeedback] = useState("");
+  const cache = useQueryClient(),
+    { user } = useAuth();
+  const downloadController = useRef(null),
+    bulkController = useRef(null);
+  useEffect(
+    () => () => {
+      downloadController.current?.abort();
+      downloadController.current = null;
+      bulkController.current?.abort();
+      bulkController.current = null;
+    },
+    [],
+  );
   const query = useResource(
     "jobs",
-    {
-      connectionId,
-      site,
-      status,
-      q,
-      cursor: filters.params.get("cursor"),
-      limit: 20,
-    },
+    { ...jobFilters, cursor: filters.params.get("cursor"), limit: 20 },
     { interval: live.data?.items.length ? 5000 : false },
   );
+  const actionsDisabled =
+    downloading ||
+    !!bulkAction ||
+    query.isPending ||
+    !!query.error ||
+    !query.data?.items.length;
+  async function performBulk(kind) {
+    if (bulkController.current) return;
+    const controller = new AbortController();
+    bulkController.current = controller;
+    setBulkAction(kind);
+    setBulkError(null);
+    setDownloadError(null);
+    setFeedback("");
+    try {
+      if (kind === "assign") {
+        const body = Object.fromEntries(
+          Object.entries(jobFilters).filter(([, value]) => value !== ""),
+        );
+        const result = await api("/jobs/assign", {
+          method: "POST",
+          body,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        filters.change({});
+        void invalidateJobs(cache, user.id);
+        setFeedback(
+          `${result.assignedCount} ${result.assignedCount === 1 ? "job" : "jobs"} assigned.`,
+        );
+      } else {
+        const text = await api(`/jobs/clipboard${queryString(jobFilters)}`, {
+          responseType: "text",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        const count = Math.max(0, text.trimEnd().split("\n").length - 1);
+        if (!count) {
+          setFeedback("No jobs match the current filters.");
+          return;
+        }
+        if (!navigator.clipboard?.writeText)
+          throw new Error(
+            "Clipboard access is unavailable. Allow clipboard access and try again.",
+          );
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          throw new Error(
+            "Clipboard access was blocked. Allow clipboard access and try again.",
+          );
+        }
+        if (!controller.signal.aborted)
+          setFeedback(
+            `${count} ${count === 1 ? "job" : "jobs"} copied. Paste into Google Sheets with Ctrl+V.`,
+          );
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setBulkError(error);
+    } finally {
+      if (bulkController.current === controller) {
+        bulkController.current = null;
+        setBulkAction(null);
+      }
+    }
+  }
+  function applyTime(event) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const fromValue = data.get("collectedFrom"),
+      toValue = data.get("collectedTo");
+    const from = fromValue ? new Date(fromValue) : null,
+      to = toValue ? new Date(toValue) : null;
+    if (
+      (from && !Number.isFinite(from.valueOf())) ||
+      (to && !Number.isFinite(to.valueOf())) ||
+      (from && to && from > to)
+    ) {
+      setTimeError(
+        new Error("Collected from must be before or equal to collected to."),
+      );
+      return;
+    }
+    setTimeError(null);
+    filters.change({
+      collectedFrom: from?.toISOString() ?? "",
+      collectedTo: to?.toISOString() ?? "",
+    });
+  }
+  async function download() {
+    if (downloadController.current) return;
+    const controller = new AbortController();
+    downloadController.current = controller;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const blob = await api(`/jobs/export${queryString(jobFilters)}`, {
+        responseType: "blob",
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      const url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = "gather-jobs.csv";
+      document.body.append(link);
+      try {
+        link.click();
+      } finally {
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setDownloadError(error);
+    } finally {
+      if (downloadController.current === controller) {
+        downloadController.current = null;
+        setDownloading(false);
+      }
+    }
+  }
   return (
     <>
       <PageHead
@@ -99,21 +252,104 @@ export function Jobs() {
             </select>
           </label>
           <label className="select-label">
-            <span className="sr-only">Processing status</span>
+            <span className="sr-only">Tracking status</span>
             <select
-              aria-label="Processing status"
+              aria-label="Tracking status"
               value={status}
               onChange={(event) =>
                 filters.change({ status: event.target.value })
               }
             >
               <option value="">All tracking</option>
+              <option value="available">Available (unassigned)</option>
+              <option value="assigned">Assigned</option>
               <option value="saved">Saved</option>
               <option value="mark_pending">Update unconfirmed</option>
               <option value="mark_confirmed">Marked applied</option>
             </select>
           </label>
+          <div className="job-bulk-actions">
+            <button
+              type="button"
+              className="button subtle"
+              disabled={actionsDisabled}
+              onClick={() => performBulk("assign")}
+              title="Mark all jobs matching the applied filters across every page as Assigned"
+            >
+              <Icon name="check" size={16} />
+              {bulkAction === "assign" ? "Assigning…" : "Assign all Jobs"}
+            </button>
+            <button
+              type="button"
+              className="button subtle"
+              disabled={actionsDisabled}
+              onClick={() => performBulk("copy")}
+              title="Copy all matches across every page as Company Name, Job Title, and Link for Google Sheets"
+            >
+              <Icon name="copy" size={16} />
+              {bulkAction === "copy" ? "Copying…" : "Copy Available Jobs"}
+            </button>
+            <button
+              type="button"
+              className="button subtle download-jobs"
+              disabled={actionsDisabled}
+              onClick={download}
+              title="Download all jobs matching the applied filters, across every page"
+            >
+              <Icon name="download" size={16} />
+              {downloading ? "Downloading…" : "Download CSV"}
+            </button>
+          </div>
         </div>
+        <form
+          className="time-filters"
+          key={`${collectedFrom}:${collectedTo}`}
+          onSubmit={applyTime}
+          onChange={() => setTimeError(null)}
+        >
+          <label>
+            Collected from
+            <input
+              type="datetime-local"
+              name="collectedFrom"
+              step="1"
+              defaultValue={localDateTime(collectedFrom)}
+            />
+          </label>
+          <label>
+            Collected to
+            <input
+              type="datetime-local"
+              name="collectedTo"
+              step="1"
+              defaultValue={localDateTime(collectedTo)}
+            />
+          </label>
+          <button type="submit" className="button subtle small">
+            Apply time filter
+          </button>
+          {(collectedFrom || collectedTo) && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setTimeError(null);
+                filters.change({ collectedFrom: "", collectedTo: "" });
+              }}
+            >
+              Clear time filter
+            </button>
+          )}
+          <span className="time-filter-help">
+            Times are in your local time zone.
+          </span>
+        </form>
+        {feedback && (
+          <div className="notice job-action-feedback" role="status">
+            {feedback}
+          </div>
+        )}
+        <ErrorNotice error={timeError ?? bulkError ?? downloadError} />
         <ErrorNotice error={query.error} />
         {query.isPending ? (
           <Loading text="Loading collected jobs…" />
@@ -129,7 +365,12 @@ export function Jobs() {
         ) : (
           <Empty
             title={
-              q || connectionId || status || site
+              q ||
+              connectionId ||
+              status ||
+              site ||
+              collectedFrom ||
+              collectedTo
                 ? "No matching opportunities"
                 : "Your job library starts here"
             }
@@ -284,7 +525,7 @@ export function JobDetail() {
           </div>
         </div>
         <div className="job-heading-actions">
-          <Status value={job.processingState} />
+          <Status value={job.assignedAt ? "assigned" : job.processingState} />
           <SafeExternal
             className="button primary"
             href={details.applicationUrl ?? job.url}
