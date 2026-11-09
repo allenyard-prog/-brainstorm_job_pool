@@ -1,0 +1,18 @@
+{
+  "name": "job-site-automation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "login": "node --env-file-if-exists=.env src/cli.js login",
+    "start": "node --env-file-if-exists=.env src/cli.js start",
+    "inspect": "node --env-file-if-exists=.env src/cli.js inspect",
+    "compare": "node --env-file-if-exists=.env src/cli.js compare",
+    "plugin:create": "node scripts/create-plugin.mjs",
+    "export": "node --env-file-if-exists=.env src/cli.js export",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "browsers:install": "playwright install chromium"
+  },
+  "dependencies": { "playwright": "1.65.0" }
+}
