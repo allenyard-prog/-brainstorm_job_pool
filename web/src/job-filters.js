@@ -4,6 +4,7 @@ export const scoreRanges = [
   ["industryMatch", "Industry match"],
 ];
 export const drawerKeys = [
+  "excludeBlacklistedCompanies",
   "company",
   "companyId",
   "postedFrom",
@@ -20,7 +21,12 @@ export const drawerKeys = [
 export const jobFilterKeys = ["q", ...drawerKeys];
 export function readJobFilters(params) {
   return Object.fromEntries(
-    jobFilterKeys.map((key) => [key, params.get(key) ?? ""]),
+    jobFilterKeys.map((key) => [
+      key,
+      key === "excludeBlacklistedCompanies" && params.get(key) === "false"
+        ? ""
+        : (params.get(key) ?? ""),
+    ]),
   );
 }
 export function localDay(value) {
@@ -104,11 +110,17 @@ export function jobFilterBody(filters) {
       .filter(([, value]) => value !== "")
       .map(([key, value]) => [
         key,
-        scoreRanges.some(
-          ([prefix]) => key === prefix + "Min" || key === prefix + "Max",
-        )
-          ? Number(value)
-          : value,
+        key === "excludeBlacklistedCompanies"
+          ? value === "true"
+            ? true
+            : value === "false"
+              ? false
+              : value
+          : scoreRanges.some(
+                ([prefix]) => key === prefix + "Min" || key === prefix + "Max",
+              )
+            ? Number(value)
+            : value,
       ]),
   );
 }
@@ -120,6 +132,11 @@ export function filterChips(filters, profiles = [], sites = []) {
     if (keys.some((key) => filters[key] !== "" && filters[key] != null))
       chips.push({ keys, label, value });
   };
+  if (
+    filters.excludeBlacklistedCompanies === "true" ||
+    filters.excludeBlacklistedCompanies === true
+  )
+    add(["excludeBlacklistedCompanies"], "Blacklist", "Excluded");
   add(["company"], "Company", filters.company);
   add(["companyId"], "Company directory", `#${filters.companyId}`);
   add(

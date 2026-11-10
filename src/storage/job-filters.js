@@ -25,6 +25,7 @@ export function jobWhere(
     postedFrom,
     postedTo,
     availableOnly = false,
+    excludeBlacklistedCompanies = false,
     ...scores
   } = {},
 ) {
@@ -157,5 +158,9 @@ export function jobWhere(
     }
   }
   if (availableOnly) clauses.push("j.assigned_at IS NULL");
+  if (excludeBlacklistedCompanies === true)
+    clauses.push(
+      "NOT EXISTS (SELECT 1 FROM companies blacklist WHERE blacklist.id=j.company_id AND blacklist.user_id=j.user_id AND blacklist.is_blacklisted=1)",
+    );
   return { where: clauses.join(" AND "), params };
 }

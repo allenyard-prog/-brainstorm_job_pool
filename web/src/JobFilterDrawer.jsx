@@ -213,6 +213,26 @@ export default function JobFilterDrawer({
           <p className="drawer-hint">
             An active date or score range excludes jobs whose value is unknown.
           </p>
+          <div className="drawer-blacklist">
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.excludeBlacklistedCompanies === "true"}
+                onChange={(event) =>
+                  change(
+                    "excludeBlacklistedCompanies",
+                    event.target.checked ? "true" : "",
+                  )
+                }
+                aria-describedby={`${title}-blacklist-help`}
+              />
+              Exclude blacklisted companies
+            </label>
+            <p id={`${title}-blacklist-help`}>
+              Only linked jobs are excluded. Run Sync companies to include newly
+              collected jobs in company filtering.
+            </p>
+          </div>
           <label className="drawer-field">
             Profile
             <select

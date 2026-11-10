@@ -8,6 +8,181 @@ import { ServiceStore } from "../src/storage/service-store.js";
 import { accountKey } from "../src/core/security.js";
 import { encryptCredentials } from "../src/service/crypto.js";
 
+test("browser UI: blacklist companies, exclude linked jobs, synchronize and restore", async () => {
+  const f = await browserFixture();
+  try {
+    const second = await f.addConnection(
+      f.users.alice,
+      "blacklist-second@provider.test",
+    );
+    function save(profile, id, title, company) {
+      const store = new ServiceStore(f.config.dbPath, {
+        userId: f.users.alice.id,
+        connectionId: profile.id,
+      });
+      try {
+        store.saveJob("jobright", accountKey(profile.label), {
+          id,
+          title,
+          company: company.companyName,
+          url: `https://fixture.test/jobs/${id}`,
+          details: {
+            description: { text: "Complete fixture description" },
+            company,
+          },
+        });
+      } finally {
+        store.close();
+      }
+    }
+    const northstar = {
+      companyName: "Northstar Labs",
+      companyURL: "https://company.test",
+    };
+    save(second, "blocked-second", "Blacklisted Engineer", northstar);
+    save(f.aliceProfile, "allowed", "Allowed Engineer", {
+      companyName: "Allowed Labs",
+      companyURL: "https://allowed.test",
+    });
+    await f.login();
+    const { page } = f;
+    async function openCompanies() {
+      await page.getByRole("link", { name: "Companies", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Your company directory", exact:true })
+        .waitFor();
+    }
+    async function sync() {
+      await page
+        .getByRole("button", { name: "Sync companies", exact: true })
+        .click();
+      await page
+        .getByText(/Company directory is up to date for this sync/)
+        .waitFor();
+      await page
+        .getByRole("button", { name: "Sync companies", exact: true })
+        .waitFor();
+    }
+    await openCompanies();
+    await sync();
+    await page
+      .getByRole("button", {
+        name: "Blacklist company Northstar Labs",
+        exact: true,
+      })
+      .click();
+    const restore = page.getByRole("button", {
+      name: "Remove Northstar Labs from blacklist",
+      exact: true,
+    });
+    await restore.waitFor();
+    await page.getByText("Blacklisted", { exact: true }).waitFor();
+    await mkdir(resolve("artifacts/frontend"), { recursive: true });
+    await page.screenshot({
+      path: resolve("artifacts/frontend/company-blacklist-desktop.png"),
+      fullPage: true,
+      animations: "disabled",
+    });
+    await page
+      .getByRole("link", { name: "View Northstar Labs", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Northstar Labs", exact: true })
+      .waitFor();
+    await page.getByText("Blacklisted", { exact: true }).waitFor();
+    assert.equal(await page.locator("tbody tr").count(), 2);
+    save(f.aliceProfile, "unsynced", "Unsynced Engineer", northstar);
+    await page
+      .getByRole("link", { name: "Collected jobs", exact: true })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 4,
+    );
+    await page.getByRole("button", { name: /^Filters/ }).click();
+    const checkbox = page.getByLabel("Exclude blacklisted companies");
+    assert.equal(await checkbox.isChecked(), false);
+    await checkbox.check();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(
+      new URL(page.url()).searchParams.has("excludeBlacklistedCompanies"),
+      false,
+    );
+    await page.getByRole("button", { name: /^Filters/ }).click();
+    assert.equal(await checkbox.isChecked(), false);
+    await checkbox.check();
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 2,
+    );
+    assert.equal(
+      new URL(page.url()).searchParams.get("excludeBlacklistedCompanies"),
+      "true",
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "View Senior Data Engineer", exact: true })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "View Blacklisted Engineer", exact: true })
+        .count(),
+      0,
+    );
+    await page
+      .getByRole("link", { name: "View Unsynced Engineer", exact: true })
+      .waitFor();
+    const filteredUrl = page.url();
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Remove Blacklist filter" })
+      .waitFor();
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 2,
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: /^Filters/ }).click();
+    assert.equal(await checkbox.isChecked(), true);
+    await checkbox.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: resolve("artifacts/frontend/company-blacklist-filter-mobile.png"),
+      animations: "disabled",
+    });
+    assert.equal(
+      Math.round((await page.getByRole("dialog").boundingBox()).width),
+      390,
+    );
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await openCompanies();
+    await sync();
+    await restore.waitFor();
+    await page.goto(filteredUrl);
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 1,
+    );
+    await page
+      .getByRole("link", { name: "View Allowed Engineer", exact: true })
+      .waitFor();
+    await openCompanies();
+    await restore.click();
+    await page
+      .getByRole("button", {
+        name: "Blacklist company Northstar Labs",
+        exact: true,
+      })
+      .waitFor();
+    await page.goto(filteredUrl);
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr").length === 4,
+    );
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});
+
 async function browserFixture({ timezoneId } = {}) {
   await access(resolve("web/dist/index.html"));
   const f = await serviceFixture({

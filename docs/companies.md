@@ -12,6 +12,16 @@ Search companies by name or filter by profile. Open a company for its descriptio
 
 Company-list counts follow the selected profile. Company-detail summary counts cover all your profiles; its job table can be filtered independently. Counts represent stored job records, including separate records for the same source posting collected through different profiles. **Marked applied** is confirmed website tracking, not proof of employer submission.
 
+## Company blacklist
+
+Each company row shows **Blacklisted** or **Not blacklisted** and an action to **Blacklist company** or **Remove from blacklist**. Changes apply to the current backend user across all their profiles. The affected row is disabled while saving; failures appear inline without automatic retries or optimistic status changes. Company details also show the status, and blacklisted companies and their related jobs remain visible in the directory.
+
+In **Collected jobs → Filters**, enable **Exclude blacklisted companies** and Apply. The checkbox defaults to off and follows existing URL, draft, reset, cancel, chip, and pagination behavior. The same filter constrains CSV export, clipboard copying, and bulk assignment.
+
+Only existing company links are checked. Newly collected unlinked jobs remain visible even if their name matches a blacklisted company; use **Sync companies** to establish links. Unknown/unlinked jobs remain included. There is no fuzzy matching, automatic sync, scraper skipping, website tracking change, or employer application workflow. “Whitelist” means removing the blacklist flag.
+
+The flag is stored outside company metadata. Sync preserves it. When compatible companies merge, the survivor stays blacklisted if either record was blacklisted; users can explicitly remove the flag afterward. Flag updates leave source metadata and collection/sync timestamps unchanged. Confirmed changes refresh the current user's company/job queries.
+
 ## Identity and metadata rules
 
 Company matching uses source company IDs scoped to the source website, official website domains, and normalized name aliases. Names use Unicode normalization, lowercase, and collapsed whitespace. Domains ignore `www.` and case. Arbitrary news/social links are not treated as official identity, and names are not fuzzy matched.
@@ -47,11 +57,16 @@ All endpoints require the current backend user's session and retain existing Ori
 | `GET /api/v1/company-syncs/:id` | Owner-scoped progress and sanitized failure information |
 | `GET /api/v1/companies` | Summaries with `items` and `nextCursor`; accepts `q`, `connectionId`, `cursor`, `limit` |
 | `GET /api/v1/companies/:id` | Full company metadata and all-profile job counts |
+| `PATCH /api/v1/companies/:id` | Set `{ "isBlacklisted": true }` or false; return the updated company summary |
 | `GET /api/v1/jobs?companyId=123` | Existing paginated job summaries restricted to that company and user |
 
 Job resources additionally return nullable `companyId` and `companyName`. Shared job filters, assignment, and exports also accept `companyId`. Company page size defaults to 20 with a maximum of 100; cursors follow descending integer company IDs. Company list responses omit large metadata JSON.
 
 ## Storage and verification
+
+Schema version 6 adds `companies.is_blacklisted`, constrained to 0/1 and defaulting existing companies to 0. Company summaries/details expose boolean `isBlacklisted`. PATCH requires that boolean and rejects missing, extra, or non-boolean fields. Repeated updates are harmless; another user's company returns 404, including for administrators. Shared job APIs accept boolean `excludeBlacklistedCompanies`: true excludes linked blacklisted companies owned by the requesting user, while false/omission preserves the full set. Invalid boolean values return 400.
+
+Earlier supported schemas still migrate normally; dormant AI tables remain preserved without restoring AI functionality. No job data or processing state is rewritten by the version-6 migration. Tests cover owner isolation, merge/sync preservation, typed exclusion, bulk consistency, reversible actions, and reload/mobile behavior.
 
 Schema version 3 adds `companies`, `company_identifiers`, `company_syncs`, and nullable `jobs.company_id`. It preserves existing job details/raw JSON, assignment timestamps, source IDs, and pending tracking updates. Indexes enforce strong identifier uniqueness and sync exclusivity; company-job ownership is also guarded by SQLite triggers. Existing jobs are linked only after the user starts a sync.
 

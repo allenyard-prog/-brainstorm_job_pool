@@ -146,6 +146,8 @@ Request/response schemas are included in OpenAPI. Remote deployment, public regi
 
 ## Verification
 
+Company summaries/details expose `isBlacklisted`, set by owner-scoped `PATCH /api/v1/companies/:id` with a boolean body field. The drawer's **Exclude blacklisted companies** option defaults to off and maps to shared boolean `excludeBlacklistedCompanies` for listing, export, clipboard, and assignment. Only linked jobs are excluded; synchronize companies to include new jobs in filtering. See [blacklist behavior](companies.md#company-blacklist).
+
 The jobs **Filters** drawer now supports company name, posted/first-registered calendar dates, total/skill/industry score ranges, profile, website, and tracking. See [advanced filter APIs, normalization, and migration](job-filters.md). All applied filters also constrain export, copying, and assignment; legacy collected-time parameters retain their latest-scrape meaning.
 
 Run `.\npm.cmd test`. Tests use temporary databases, managed fixture processes, and a local Jobright-shaped website. They cover authentication, expiry, rate limiting, ownership, encryption/tampering, pagination, limits, async API responsiveness, graceful and forced stops, crashes, restart recovery, pending-write retries, schema migration and real browser/API workers. They never authenticate to or update the real Jobright account.

@@ -35,6 +35,7 @@ const companyDto = (row) => ({
   domain: row.domain,
   location: row.location,
   industry: row.industry,
+  isBlacklisted: Boolean(row.is_blacklisted),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   lastSyncedAt: row.last_synced_at,
@@ -231,6 +232,15 @@ export class CompanyStore extends Store {
         }
       }
       visit(otherDetails);
+      this.db
+        .prepare(
+          "UPDATE companies SET is_blacklisted=? WHERE id=? AND user_id=?",
+        )
+        .run(
+          Number(Boolean(target.is_blacklisted || other.is_blacklisted)),
+          targetId,
+          userId,
+        );
       this.writeCompany(targetId, details, times, target.last_sync_id, now());
       this.db
         .prepare(
@@ -517,7 +527,7 @@ export class CompanyStore extends Store {
     const counts = `SELECT company_id,count(*) AS job_count,sum(assigned_at IS NOT NULL) AS assigned_count,sum(p.state='mark_confirmed') AS applied_count FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.user_id=? ${connectionId ? "AND j.connection_id=?" : ""} GROUP BY company_id`;
     const rows = this.db
       .prepare(
-        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY c.id DESC LIMIT ?`,
+        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.is_blacklisted,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY c.id DESC LIMIT ?`,
       )
       .all(
         userId,
@@ -533,6 +543,24 @@ export class CompanyStore extends Store {
           ? Buffer.from(String(items.at(-1).id)).toString("base64url")
           : null,
     };
+  }
+  setCompanyBlacklist(userId, id, isBlacklisted) {
+    if (typeof isBlacklisted !== "boolean")
+      throw new ServiceError(
+        400,
+        "INVALID_BLACKLIST_VALUE",
+        "isBlacklisted must be a boolean.",
+      );
+    return this.transaction(() => {
+      const result = this.db
+        .prepare(
+          "UPDATE companies SET is_blacklisted=? WHERE id=? AND user_id=?",
+        )
+        .run(Number(isBlacklisted), id, userId);
+      if (!result.changes) throw notFound();
+      const { details, ...summary } = this.companyDetail(userId, id);
+      return summary;
+    });
   }
   companyDetail(userId, id) {
     const row = this.db
@@ -561,4 +589,5 @@ export const companyRpcMethods = [
   "processCompanySyncBatch",
   "listCompanies",
   "companyDetail",
+  "setCompanyBlacklist",
 ];

@@ -87,6 +87,7 @@ export async function buildService(config, { supervise = true } = {}) {
     route('GET', '/company-syncs/:id', { params: s.idParams, response: s.response(200,s.companySync) }, request => db.call('getCompanySync',request.user.id,request.params.id));
     route('GET', '/companies', { querystring: bodySchema({ ...s.pagination, q: { type: 'string', maxLength: 200 }, connectionId: { type: 'string', maxLength: 100 } }), response: s.response(200,s.list(s.company)) }, request => db.call('listCompanies',request.user.id,request.query));
     route('GET', '/companies/:id', { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }, response: s.response(200,s.companyDetail) }, async request => scrubSecrets(await db.call('companyDetail',request.user.id,request.params.id)));
+    route('PATCH','/companies/:id',{params:{type:'object',additionalProperties:false,required:['id'],properties:{id:{type:'integer',minimum:1}}},body:bodySchema({isBlacklisted:{enum:[true,false]}},['isBlacklisted']),response:s.response(200,s.company)},request=>db.call('setCompanyBlacklist',request.user.id,request.params.id,request.body.isBlacklisted));
     route('GET', '/sites', { response: s.response(200, { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
       id: { type: 'string' }, name: { type: 'string' }, transports: { type: 'array', items: { type: 'string' } }, operations: { type: 'array', items: { type: 'string' } },
     } } }) }, () => listSites(config.sites));

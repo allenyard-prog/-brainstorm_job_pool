@@ -12,6 +12,7 @@ import {
   useFilters,
   useResource,
   isCompanySyncActive,
+  invalidateJobs,
 } from "../data.js";
 import { api, safeLink, dateLabel } from "../api.js";
 import {
@@ -43,6 +44,83 @@ function External({ href, children }) {
       <Icon name="external" size={14} />
     </a>
   ) : null;
+}
+function CompanyBlacklistStatus({ isBlacklisted }) {
+  return (
+    <span
+      className={`company-blacklist-status ${isBlacklisted ? "is-blacklisted" : ""}`}
+    >
+      <Icon name={isBlacklisted ? "alert" : "check"} size={13} />
+      {isBlacklisted ? "Blacklisted" : "Not blacklisted"}
+    </span>
+  );
+}
+function CompanyBlacklistControl({ company }) {
+  const { user } = useAuth(),
+    cache = useQueryClient();
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(null);
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const confirmed = await api(`/companies/${company.id}`, {
+        method: "PATCH",
+        body: { isBlacklisted: !company.isBlacklisted },
+      });
+      cache.setQueriesData(
+        {
+          predicate: (query) =>
+            query.queryKey[0] === "user" &&
+            query.queryKey[1] === user.id &&
+            (query.queryKey[2] === "companies" ||
+              query.queryKey[2] === `companies/${company.id}`),
+        },
+        (data) => {
+          if (!data) return data;
+          if (data.items)
+            return {
+              ...data,
+              items: data.items.map((item) =>
+                item.id === company.id
+                  ? { ...item, isBlacklisted: confirmed.isBlacklisted }
+                  : item,
+              ),
+            };
+          return { ...data, isBlacklisted: confirmed.isBlacklisted };
+        },
+      );
+      await invalidateJobs(cache, user.id);
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="company-blacklist-control">
+      <CompanyBlacklistStatus isBlacklisted={company.isBlacklisted} />
+      <button
+        type="button"
+        className="button subtle small"
+        disabled={busy}
+        aria-label={
+          company.isBlacklisted
+            ? `Remove ${company.name} from blacklist`
+            : `Blacklist company ${company.name}`
+        }
+        onClick={toggle}
+      >
+        {busy
+          ? "Saving…"
+          : company.isBlacklisted
+            ? "Remove from blacklist"
+            : "Blacklist company"}
+      </button>
+      <ErrorNotice error={error} />
+    </div>
+  );
 }
 function SyncControls() {
   const { companySync } = useOutletContext(),
@@ -224,6 +302,7 @@ export function Companies() {
                     <th>Collected jobs</th>
                     <th>Assigned</th>
                     <th>Marked applied</th>
+                    <th>Blacklist</th>
                     <th>
                       <span className="sr-only">Company details</span>
                     </th>
@@ -260,6 +339,9 @@ export function Companies() {
                       <td>{company.jobCount}</td>
                       <td>{company.assignedCount}</td>
                       <td>{company.markedAppliedCount}</td>
+                      <td>
+                        <CompanyBlacklistControl company={company} />
+                      </td>
                       <td>
                         <Link
                           className="icon-button"
@@ -349,6 +431,9 @@ export function CompanyDetail() {
       <PageHead title={company.name} eyebrow="COMPANY DETAILS">
         Collected information from your job-site profiles.
       </PageHead>
+      <div className="company-detail-blacklist">
+        <CompanyBlacklistStatus isBlacklisted={company.isBlacklisted} />
+      </div>
       <div className="metric-grid">
         {[
           ["Collected jobs", company.jobCount],
