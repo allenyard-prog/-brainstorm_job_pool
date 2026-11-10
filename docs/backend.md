@@ -80,7 +80,7 @@ All application endpoints are under `/api/v1`. Cookies have `HttpOnly`, `SameSit
 | `GET /jobs` | Paginated summaries; filters below |
 | `GET /jobs/export` | CSV attachment containing all jobs matching the same filters, without cursor/limit parameters |
 | `POST /jobs/assign` | Mark all jobs matching the body filters as Assigned; returns `assignedCount` |
-| `GET /jobs/clipboard` | Tab-separated Company Name, Job Title, Link table for all jobs matching the filters |
+| `GET /jobs/clipboard` | Tab-separated Company Name, Job Title, employer application Link table for all jobs matching the filters |
 | `GET /jobs/:id` | Full parsed detail JSON |
 | `GET /jobs/:id?includeRaw=true` | Include job-specific raw source JSON with secret fields redacted |
 | `GET /health` | Process liveness, without authentication |
@@ -104,6 +104,8 @@ Defaults are `transport: "browser"`, `readOnly: false`, and an unlimited run whe
 `GET /jobs` accepts `limit` (default 20, maximum 100), opaque `cursor`, `connectionId`, `site`, title/company search `q`, processing `status` (`saved`, `mark_pending`, `mark_confirmed`), and optional inclusive `collectedFrom`/`collectedTo` ISO 8601 timestamps with a time zone. Time filters compare `lastScrapedAt`; reversed or invalid ranges return `400`. Summaries exclude large detail/raw columns. `GET /jobs/export` accepts the same filters without pagination and streams the matching CSV in batches of 100. It requires the same session and owner scope as the list, including for administrators. CSV timestamps are UTC; spreadsheet formula prefixes in scraped strings are escaped. Run history supports the same page-size limits and an opaque cursor, plus `connectionId` and lifecycle `status` filters. `status=active` includes queued, starting, running, and stop-requested operations. List responses contain `items` and `nextCursor`.
 
 The jobs `status` filter also accepts `assigned` and `available`. Assigned jobs appear under `assigned`; `available` and the three processing-state filters exclude assigned jobs. Omitting `status` includes both. `/jobs/assign` accepts the same filters in a JSON body, without pagination; the update is atomic and owner-scoped, and reassigning already assigned jobs returns zero new assignments. `/jobs/clipboard` accepts the same query filters without pagination and copies the exact matching set, including assigned jobs when they match. It streams three columns in batches of 100, flattens embedded tabs/newlines inside cells, and escapes spreadsheet formula prefixes. Neither operation changes Jobright tracking or the scraper's processing state.
+
+The clipboard **Link** column uses the stored `details.applicationUrl`, pointing to the employer/ATS application page. Missing, invalid, non-HTTP(S), or Jobright URLs produce an empty Link cell; copying never falls back to the Jobright posting. Only the application URL field is projected from metadata for clipboard requests. CSV exports retain their existing source `url` column.
 
 ## Architecture and lifecycle
 

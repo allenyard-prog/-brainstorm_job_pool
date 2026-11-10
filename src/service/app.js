@@ -136,7 +136,7 @@ export async function buildService(config, { supervise = true } = {}) {
     route('GET', '/jobs', { querystring: bodySchema({ ...s.pagination, ...s.jobFilters }), response: s.response(200, s.list(s.job)) }, request => db.call('listJobs', request.user.id, request.query));
     route('POST', '/jobs/assign', { body: bodySchema(s.jobFilters), response: s.response(200, bodySchema({ assignedCount: { type: 'integer', minimum: 0 } }, ['assignedCount'])) }, request => db.call('assignJobs', request.user.id, request.body));
     route('GET', '/jobs/clipboard', { querystring: bodySchema(s.jobFilters), response: s.response(200, { type: 'string' }) }, async (request, reply) => {
-      const firstPage = await db.call('listJobs', request.user.id, { ...request.query, limit: 100 });
+      const firstPage = await db.call('listJobs', request.user.id, { ...request.query, limit: 100, includeApplicationUrl: true });
       return reply.type('text/plain; charset=utf-8').header('Cache-Control', 'private, no-store')
         .send(Readable.from(jobTsv(db, request.user.id, request.query, firstPage)));
     });

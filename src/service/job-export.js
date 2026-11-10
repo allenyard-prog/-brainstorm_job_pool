@@ -28,10 +28,20 @@ export async function* jobTsv(db, userId, filters, firstPage) {
   let page = firstPage;
   while (true) {
     for (const job of page.items) {
-      yield [job.company, job.title, job.url]
+      yield [job.company, job.title, applicationLink(job.applicationUrl)]
         .map(value => spreadsheetText(value).replace(/[\t\r\n]+/g, ' ')).join('\t') + '\n';
     }
     if (!page.nextCursor) break;
-    page = await db.call('listJobs', userId, { ...filters, cursor: page.nextCursor, limit: 100 });
+    page = await db.call('listJobs', userId, { ...filters, cursor: page.nextCursor, limit: 100, includeApplicationUrl: true });
   }
+}
+
+function applicationLink(value) {
+  if (typeof value !== 'string') return '';
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (!['http:','https:'].includes(url.protocol) || url.username || url.password || hostname === 'jobright.ai' || hostname.endsWith('.jobright.ai')) return '';
+    return url.href;
+  } catch { return ''; }
 }

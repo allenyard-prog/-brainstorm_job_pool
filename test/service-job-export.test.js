@@ -29,6 +29,7 @@ function seed(f, user, connection, entries) {
           details: {
             description: { text: "Complete description.\nSecond line." },
             skills: ["SQL"],
+            applicationUrl: `https://employer.test/apply/${index}`,
             sessionToken: "detail-secret",
           },
           raw: { retained: "raw-secret" },
@@ -355,9 +356,11 @@ test("bulk assignment and Sheets copying share all filters, span pages, preserve
     assert.deepEqual(rows.at(-1), [
       'Example, "Labs"',
       '\'=Engineer, "lead" Remote',
-      "https://example.test/jobs/0",
+      "https://employer.test/apply/0",
     ]);
     assert.ok(!copied.body.includes("Engineer 104"));
+    assert.equal(rows[1][2], "https://employer.test/apply/103");
+    assert.ok(!copied.body.includes("https://example.test/jobs/"));
     assert.ok(!copied.body.includes("detail-secret"));
     assert.ok(!copied.body.includes("Engineer pending"));
     assert.equal(
@@ -472,6 +475,63 @@ test("bulk assignment and Sheets copying share all filters, span pages, preserve
       ).json().items.length,
       1,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("clipboard links use only valid external application URLs and leave missing/unsafe links blank", async () => {
+  const f = await serviceFixture();
+  try {
+    const cookie = await f.login("alice"),
+      connection = await f.connect(cookie);
+    const urls = [
+      "https://boards.greenhouse.io/example/jobs/123?source=jobright",
+      "http://employer.test/apply/456",
+      null,
+      undefined,
+      "",
+      "not-a-url",
+      "javascript:alert(1)",
+      "https://jobright.ai/jobs/info/123",
+      "https://www.jobright.ai/redirect/123",
+      "https://JOBRIGHT.AI./jobs/info/123",
+      "https://user:password@employer.test/apply",
+    ];
+    seed(
+      f,
+      f.users.alice,
+      connection,
+      urls.map((applicationUrl, index) => ({
+        title: `Application URL ${index}`,
+        url: `https://jobright.ai/jobs/info/${index}`,
+        details: {
+          description: { text: "Stored description" },
+          applicationUrl,
+        },
+      })),
+    );
+    const response = await f.request(
+      "GET",
+      "/api/v1/jobs/clipboard",
+      undefined,
+      cookie,
+    );
+    assert.equal(response.statusCode, 200);
+    const rows = response.body
+      .split("\n")
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => line.split("\t"));
+    assert.equal(rows.length, urls.length);
+    assert.ok(rows.every((row) => row.length === 3));
+    const byTitle = new Map(rows.map((row) => [row[1], row[2]]));
+    assert.equal(byTitle.get("Application URL 0"), urls[0]);
+    assert.equal(byTitle.get("Application URL 1"), urls[1]);
+    for (let index = 2; index < urls.length; index++)
+      assert.equal(byTitle.get(`Application URL ${index}`), "");
+    assert.ok(!response.body.includes("jobright.ai/jobs/info/"));
+    assert.ok(!response.body.includes("javascript:"));
   } finally {
     await f.close();
   }

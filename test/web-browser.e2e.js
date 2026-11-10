@@ -312,7 +312,10 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
           title: `Export Engineer ${index}`,
           company: "Export Company",
           url: `https://example.test/job/${index}`,
-          details: { description: { text: "Export data." } },
+          details: {
+            description: { text: "Export data." },
+            applicationUrl: `https://employer.test/apply/${index}`,
+          },
         });
         store.db
           .prepare("UPDATE jobs SET last_scraped_at=? WHERE id=?")
@@ -393,7 +396,7 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
           (row) =>
             row.length === 3 &&
             row[0] === "Export Company" &&
-            row[2].startsWith("https://example.test/job/"),
+            row[2].startsWith("https://employer.test/apply/"),
         ),
     );
     await page
