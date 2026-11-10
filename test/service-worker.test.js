@@ -7,7 +7,7 @@ import { startFixtureServer } from './helpers/fixture-server.js';
 import { accountKey } from '../src/core/security.js';
 
 test('real background worker authenticates and collects through Jobright plugin against a local fixture', async () => {
-  const source = await startFixtureServer();
+  const source = await startFixtureServer({ ids: Array.from({ length: 25 }, (_, index) => `job${index}`) });
   source.delaySignIn(800);
   const f = await serviceFixture({ supervise: true, workerModule: undefined, stopGraceMs: 5000, workerSettings: { baseUrl: source.baseUrl, intervalMs: 0, pollMs: 50, timeout: 10000 } });
   try {
@@ -21,11 +21,11 @@ test('real background worker authenticates and collects through Jobright plugin 
     assert.equal(source.requests.filter(request => request.path === '/fixture-login').length, 1);
     assert.equal((await f.request('GET', '/api/v1/connections', undefined, alice)).json()[0].authStatus, 'ready');
     await access(join(f.directory, 'sessions', f.users.alice.id, connection.id, 'session.json'));
-    const response = await f.request('POST', '/api/v1/runs', { connectionId: connection.id, transport: 'api', limit: 1 }, alice);
+    const response = await f.request('POST', '/api/v1/runs', { connectionId: connection.id, transport: 'api', limit: 25 }, alice);
     assert.equal(response.statusCode, 202);
     const complete = await waitForRun(f, alice, response.json().id, ['completed'], 20000);
-    assert.equal(complete.counters.confirmed, 1);
-    assert.equal(source.applied.size, 1);
+    assert.equal(complete.counters.confirmed, 25);
+    assert.equal(source.applied.size, 25);
     const jobs = (await f.request('GET', '/api/v1/jobs', undefined, alice)).json().items;
     assert.equal(jobs[0].processingState, 'mark_confirmed');
     const events = (await f.request('GET', `/api/v1/runs/${response.json().id}/events`, undefined, alice)).json().items;

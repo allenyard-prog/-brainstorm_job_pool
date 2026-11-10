@@ -105,6 +105,10 @@ JSON/CSV exports are derived from SQLite. CSV includes JSON-encoded detail colum
 
 Recommendations use `refresh`, `sortCondition=0`, `position`, `count=20`, and `syncRerank=false`. Later pages use increasing positions. Applied history returns `list`, `cursor`, and `hasMore`.
 
+API collection consumes every eligible job in a fetched recommendation page sequentially before requesting another page. A page contains up to 20 jobs. Each job is still saved, marked if enabled, and verified separately, with the configured interval between jobs. Stop and finite limits can end a run partway through a page. Browser collection continues to refresh the list after each job.
+
+After a batch, API listing starts at position zero because tracking updates can remove recommendations and shift the remaining jobs. Exclusion-aware pagination scans past already handled jobs when they remain visible, including in read-only mode. The temporary batch belongs only to its current run; restart reconciles pending updates before fetching new recommendations.
+
 The recommendation response already supplies the job summary, responsibilities, qualifications, benefits, matching information, and company details shown on the detail page. A separate detail XHR was not observed, so API detail retrieval normalizes the corresponding job payload from this response instead of inventing another endpoint.
 
 API mode uses the authenticated browser context's cookie jar. Only authentication uses browser navigation; API job operations never silently fall back to scraping. These are observed website endpoints and can change. Changed response shapes fail clearly.

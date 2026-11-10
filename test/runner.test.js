@@ -27,10 +27,14 @@ function setup(overrides = {}) {
 }
 test('persists before writing and does not skip cards when the list shrinks', async () => {
   const f = setup();
+  let listings = 0;
+  const list = f.plugin.listJobs;
+  f.plugin.listJobs = async (...args) => { listings++; return list(...args); };
   try {
     const result = await runJobs(f.options);
     assert.deepEqual(f.writes, ['a', 'b', 'c']);
     assert.equal(result.confirmed, 3);
+    assert.equal(listings, 3, 'browser transport must re-list after each job');
   } finally { f.store.close(); }
 });
 test('failed persistence prevents any website update', async () => {

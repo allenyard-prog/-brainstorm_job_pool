@@ -99,6 +99,8 @@ Browser sessions and diagnostics are isolated by user and connection. The fronte
 
 Both transports implement the same plugin contract and return a shared job structure. Browser mode reads rendered content and performs UI tracking changes. API mode uses confirmed website requests and the authenticated browser context's HTTP client/cookie jar. Browser-assisted authentication is still available in API mode; job operations do not silently fall back to scraping.
 
+The runner consumes API list results as a temporary batch, processing jobs one at a time before requesting another list. Jobright returns up to 20 jobs with their detail payloads. Browser mode instead requests the current list before each job. Both paths preserve per-job commits, tracking verification, cancellation, configured delays, and finite run limits.
+
 The core controls ordering and recovery. Plugins control website-specific behavior. [Website plugins](website-plugins.md) describes that boundary in detail.
 
 ## Frontend structure and hosting

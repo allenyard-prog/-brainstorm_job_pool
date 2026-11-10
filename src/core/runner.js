@@ -13,6 +13,9 @@ export async function runJobs({ plugin, context, store, site, account, transport
   const run = runId ?? store.startRun(site, account, transport);
   const heartbeat = onProgress ? setInterval(() => onProgress({ event: 'heartbeat', phase, counters: { ...counters }, fields: {} }), 1000) : null;
   const skipped = new Set();
+  // API candidates retain their source payloads until this page is consumed.
+  // Browser cards can disappear after updates, so browser mode always re-lists.
+  let candidates = [];
   let status = 'completed';
   let failure = null;
   async function verify(job) {
@@ -29,15 +32,25 @@ export async function runJobs({ plugin, context, store, site, account, transport
       else throw new UncertainWriteError(`Cannot reconcile pending job ${job.id}; no new changes will be sent.`);
     }
     while (!signal?.aborted && counters.saved < limit) {
-      log('listing_jobs');
-      const jobs = await plugin.listJobs(context, { signal, excludeIds: [...skipped, ...store.confirmedIds(site, account)] });
+      let listed = false;
+      if (transport !== 'api' || candidates.length === 0) {
+        log('listing_jobs');
+        candidates = [...await plugin.listJobs(context, { signal, excludeIds: [...skipped, ...store.confirmedIds(site, account)] })];
+        listed = true;
+      }
       if (signal?.aborted) break;
       let candidate = null;
-      for (const job of jobs) {
+      while (candidates.length) {
+        const job = candidates.shift();
         const state = store.state(site, account, job.id);
         if (!skipped.has(String(job.id)) && state?.state !== 'mark_confirmed') { candidate = job; break; }
       }
-      if (!candidate) { log('waiting_for_jobs', { pollMs }); await delay(pollMs, signal); continue; }
+      if (!candidate) {
+        // A cached page can become ineligible while it is being processed.
+        // Fetch a fresh page before deciding that recommendations are empty.
+        if (!listed) continue;
+        log('waiting_for_jobs', { pollMs }); await delay(pollMs, signal); continue;
+      }
       const jobId = String(candidate.id);
       try {
         let job;

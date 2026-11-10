@@ -91,7 +91,9 @@ The detail ID must match the selected candidate. Keep missing optional values em
 
 An API detail operation does not require a separate detail endpoint. Jobright currently normalizes the full corresponding job/company payload returned by recommendations. Verification searches Applied history with cursor pagination; absence alone is uncertain, not proof that no update happened. Observed endpoint details are recorded in the [root README](../README.md#jobright-endpoints-observed-from-the-browser).
 
-Preserve the user's source filters. Re-query changing lists after tracking updates because cards can disappear. Honor exclusions without repeatedly returning an already handled first page. Leave job intervals, empty-list polling, and extraction retry policy to the shared runner.
+Preserve the user's source filters. Browser mode re-queries the changing list after every job because cards can disappear. API mode keeps the returned page in memory and processes its eligible jobs in source order before calling `listJobs` again. Each cached candidate is checked against current local processing state, with run-local exclusions preventing repeated read-only saves and failed-job retries. There is no parallel processing or prefetch; Stop, limits, per-job persistence/verification, intervals, and failure policies remain in the shared runner.
+
+Jobright API pages contain at most 20 candidates. A new listing starts at position zero to accommodate recommendations removed by tracking updates; it advances positions when a page contains only excluded IDs. Read-only runs therefore may scan an earlier page before reaching the next batch. Batches are not persisted or reused across runs, and pending updates are reconciled before new work. An uncertain update or authentication/systemic failure stops the batch without attempting its remaining jobs.
 
 ## Jobright navigation and authentication
 
