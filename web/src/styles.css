@@ -2780,3 +2780,34 @@ tbody tr:hover {
     padding: 10px 12px;
   }
 }
+.sort-header-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+}
+.sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sort-control:hover,
+.sort-control[aria-pressed="true"] {
+  color: var(--accent);
+}
+.sort-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.sort-direction { opacity: .7; }

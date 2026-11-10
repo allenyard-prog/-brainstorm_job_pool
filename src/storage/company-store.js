@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Store } from "./database.js";
 import { ServiceError, notFound } from "../service/errors.js";
+import { companySortFields, listSorting } from './list-sorting.js';
 import {
   companyNameKey,
   extractCompany,
@@ -49,14 +50,6 @@ const columnText = (value) =>
     : typeof value === "object"
       ? JSON.stringify(value)
       : String(value);
-
-function decodeCursor(cursor) {
-  if (!cursor) return Number.MAX_SAFE_INTEGER;
-  const text = Buffer.from(cursor, "base64url").toString();
-  if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)))
-    throw new ServiceError(400, "INVALID_CURSOR", "Invalid company cursor.");
-  return Number(text);
-}
 
 export class CompanyStore extends Store {
   transaction(fn) {
@@ -510,9 +503,10 @@ export class CompanyStore extends Store {
       return this.getCompanySync(sync.user_id, id);
     });
   }
-  listCompanies(userId, { cursor, limit = 20, q, connectionId } = {}) {
-    const clauses = ["c.user_id=?", "c.id<?"],
-      params = [userId, decodeCursor(cursor)];
+  listCompanies(userId, { cursor, limit = 20, q, connectionId, sortBy, sortOrder } = {}) {
+    const sorting = listSorting('companies', companySortFields, { cursor, sortBy, sortOrder });
+    const clauses = ["c.user_id=?", sorting.where],
+      params = [userId, ...sorting.params];
     if (q) {
       clauses.push("c.normalized_name LIKE ? ESCAPE '\\'");
       params.push(`%${companyNameKey(q).replace(/[\\%_]/g, "\\$&")}%`);
@@ -527,7 +521,7 @@ export class CompanyStore extends Store {
     const counts = `SELECT company_id,count(*) AS job_count,sum(assigned_at IS NOT NULL) AS assigned_count,sum(p.state='mark_confirmed') AS applied_count FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.user_id=? ${connectionId ? "AND j.connection_id=?" : ""} GROUP BY company_id`;
     const rows = this.db
       .prepare(
-        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.is_blacklisted,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY c.id DESC LIMIT ?`,
+        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.is_blacklisted,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count,${sorting.expression} AS sort_value FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY ${sorting.order} LIMIT ?`,
       )
       .all(
         userId,
@@ -540,7 +534,7 @@ export class CompanyStore extends Store {
       items,
       nextCursor:
         rows.length > limit
-          ? Buffer.from(String(items.at(-1).id)).toString("base64url")
+          ? sorting.cursor(rows[limit - 1])
           : null,
     };
   }

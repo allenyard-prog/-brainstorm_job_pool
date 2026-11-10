@@ -37,6 +37,16 @@ Invalid or reversed ranges return a 400 error before bulk writes begin. Every qu
 
 Job summaries and details add `postedDate` (date or null) and `matchingScores` with nullable `total`, `skill`, and `industry` values. Existing `firstSeenAt` supplies registration time. Large detail/raw JSON is still excluded from list summaries.
 
+## Column sorting
+
+Click a table header to sort all matching jobs, then click again to reverse the direction. The Job column also has a Company control, and the Match column offers separate Total, Skill, and Industry controls. Profile, Tracking, Posted, and Registered are sortable. Action links are not sortable. Sorting is stored in `sortBy` / `sortOrder` URL parameters, survives reload/detail navigation, and resets cursor pagination without changing applied filters. It does not count as an active filter.
+
+`GET /api/v1/jobs`, `/jobs/export`, and `/jobs/clipboard` accept `sortBy` and `sortOrder=asc|desc`. Supported job fields are `id`, `title`, `company`, `profile`, `tracking`, `postedDate`, `firstSeenAt`, `lastScrapedAt`, `totalMatch`, `skillMatch`, and `industryMatch`. Default ordering remains `id desc`. For example: `/api/v1/jobs?sortBy=totalMatch&sortOrder=desc&connectionId=PROFILE_ID`.
+
+Text sorts ignore case and surrounding whitespace. Numeric scores retain their full precision. Empty values sort last in either direction; equal values use the job ID in the selected direction. Tracking follows the displayed labels, with Assigned taking precedence over website tracking. CSV and clipboard traverse all matching records in the selected order. Bulk assignment uses filters only; sort settings must not be sent in its body.
+
+Sort-aware cursors retain the last value and ID, and are valid only for their resource, column, and direction. A mismatched cursor returns 400; start again from page one after changing sorting. Existing numeric cursors remain valid for default newest-first ordering. Pagination is not a database snapshot: changing a record's selected sort value while paging can change its position. Sorting requires no schema migration and does not alter job metadata.
+
 ## Storage and migration
 
 Schema version 6 adds the separately managed company blacklist flag. Queries inspect linked companies at read time, so flag changes affect filtered lists and bulk actions without rewriting job metadata. Company directory/detail views continue to include blacklisted records.

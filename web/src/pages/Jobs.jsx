@@ -6,7 +6,12 @@ import {
   useOutletContext,
   useParams,
 } from "react-router-dom";
-import { invalidateJobs, useFilters, useResource } from "../data.js";
+import {
+  invalidateJobs,
+  useFilters,
+  useResource,
+  useSorting,
+} from "../data.js";
 import { useAuth } from "../auth.jsx";
 import { api, queryString, dateLabel, safeLink } from "../api.js";
 import JobFilterDrawer from "../JobFilterDrawer.jsx";
@@ -34,6 +39,8 @@ export function Jobs() {
     sites = useResource("sites");
   const jobFilters = readJobFilters(filters.params),
     q = jobFilters.q;
+  const sorting = useSorting(filters),
+    listParameters = { ...jobFilters, ...sorting.params };
   const chips = filterChips(jobFilters, profiles.data ?? [], sites.data ?? []);
   const [drawer, setDrawer] = useState(false);
   const [downloading, setDownloading] = useState(false),
@@ -56,13 +63,14 @@ export function Jobs() {
   );
   const query = useResource(
     "jobs",
-    { ...jobFilters, cursor: filters.params.get("cursor"), limit: 20 },
-    { interval: live.data?.items.length ? 5000 : false },
+    { ...listParameters, cursor: filters.params.get("cursor"), limit: 20 },
+    { interval: live.data?.items.length ? 5000 : false, keepPrevious: true },
   );
   const actionsDisabled =
     downloading ||
     !!bulkAction ||
     query.isPending ||
+    query.isPlaceholderData ||
     !!query.error ||
     !query.data?.items.length;
   async function performBulk(kind) {
@@ -88,10 +96,13 @@ export function Jobs() {
           `${result.assignedCount} ${result.assignedCount === 1 ? "job" : "jobs"} assigned.`,
         );
       } else {
-        const text = await api(`/jobs/clipboard${queryString(jobFilters)}`, {
-          responseType: "text",
-          signal: controller.signal,
-        });
+        const text = await api(
+          `/jobs/clipboard${queryString(listParameters)}`,
+          {
+            responseType: "text",
+            signal: controller.signal,
+          },
+        );
         if (controller.signal.aborted) return;
         const count = Math.max(0, text.trimEnd().split("\n").length - 1);
         if (!count) {
@@ -130,7 +141,7 @@ export function Jobs() {
     setDownloading(true);
     setDownloadError(null);
     try {
-      const blob = await api(`/jobs/export${queryString(jobFilters)}`, {
+      const blob = await api(`/jobs/export${queryString(listParameters)}`, {
         responseType: "blob",
         signal: controller.signal,
       });
@@ -169,7 +180,7 @@ export function Jobs() {
       >
         The details are gathered. Find the opportunities worth your attention.
       </PageHead>
-      <section className="panel">
+      <section className="panel" aria-busy={query.isFetching}>
         <div className="filter-bar jobs-filters">
           <form
             className="search-field"
@@ -286,6 +297,7 @@ export function Jobs() {
               jobs={query.data.items}
               profiles={profiles.data}
               showFilterMetrics
+              sorting={sorting}
             />
             <Pagination
               filters={filters}

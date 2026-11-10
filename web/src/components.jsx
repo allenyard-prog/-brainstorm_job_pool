@@ -542,19 +542,95 @@ export function RunTable({ runs, profiles = [] }) {
     </div>
   );
 }
-export function JobsTable({ jobs, profiles = [], showFilterMetrics = false }) {
+export function SortHeader({ label, sortKey, alternatives = [], sorting }) {
+  if (!sorting) return <th scope="col">{label}</th>;
+  const fields = [{ key: sortKey, label }, ...alternatives];
+  const active = fields.some((field) => field.key === sorting.sortBy);
+  return (
+    <th
+      scope="col"
+      aria-sort={
+        active
+          ? sorting.sortOrder === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <span className="sort-header-options">
+        {fields.map((field) => {
+          const selected = sorting.sortBy === field.key;
+          return (
+            <button
+              key={field.key}
+              type="button"
+              className="sort-control"
+              aria-label={`Sort by ${field.label}`}
+              aria-pressed={selected}
+              title={
+                selected
+                  ? `Sort ${field.label} ${sorting.sortOrder === "asc" ? "descending" : "ascending"}`
+                  : `Sort ${field.label} ascending`
+              }
+              onClick={() => sorting.toggle(field.key)}
+            >
+              {field.label}
+              <span className="sort-direction" aria-hidden="true">
+                {selected ? (sorting.sortOrder === "asc" ? "↑" : "↓") : "↕"}
+              </span>
+            </button>
+          );
+        })}
+      </span>
+    </th>
+  );
+}
+export function JobsTable({
+  jobs,
+  profiles = [],
+  showFilterMetrics = false,
+  sorting,
+}) {
   const location = useLocation();
   return (
     <div className="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Job</th>
-            <th>Profile</th>
-            <th>Tracking</th>
-            {showFilterMetrics && <th>Posted</th>}
-            <th>{showFilterMetrics ? "Registered" : "Collected"}</th>
-            {showFilterMetrics && <th>Match</th>}
+            <SortHeader
+              label="Job"
+              sortKey="title"
+              alternatives={[{ key: "company", label: "Company" }]}
+              sorting={sorting}
+            />
+            <SortHeader label="Profile" sortKey="profile" sorting={sorting} />
+            <SortHeader label="Tracking" sortKey="tracking" sorting={sorting} />
+            {showFilterMetrics && (
+              <SortHeader
+                label="Posted"
+                sortKey="postedDate"
+                sorting={sorting}
+              />
+            )}
+            <SortHeader
+              label={showFilterMetrics ? "Registered" : "Collected"}
+              sortKey={showFilterMetrics ? "firstSeenAt" : "lastScrapedAt"}
+              sorting={sorting}
+            />
+            {showFilterMetrics &&
+              (sorting ? (
+                <SortHeader
+                  label="Total match"
+                  sortKey="totalMatch"
+                  alternatives={[
+                    { key: "skillMatch", label: "Skill match" },
+                    { key: "industryMatch", label: "Industry match" },
+                  ]}
+                  sorting={sorting}
+                />
+              ) : (
+                <th>Match</th>
+              ))}
             <th>
               <span className="sr-only">Details</span>
             </th>

@@ -1074,3 +1074,78 @@ test("browser UI: administrator can create users without seeing other users’ j
     await f.close();
   }
 });
+test('browser UI: job and company sorting spans pages, restores URLs and supports keyboard/mobile use', async () => {
+  const f = await browserFixture();
+  const { page } = f;
+  try {
+    const store = new ServiceStore(f.config.dbPath, { connectionId: f.aliceProfile.id, userId: f.users.alice.id });
+    const titles = Array.from({ length: 26 }, (_, i) => `Sort Role ${String(i).padStart(2, '0')}`);
+    try {
+      for (let i = 0; i < titles.length; i++) {
+        store.saveJob('jobright', accountKey(f.aliceProfile.label), {
+          id: `sort-${i}`, title: titles[i], company: `Sort Company ${String(i).padStart(2, '0')}`,
+          url: 'https://example.test/job', details: { description: { text: 'Sorting fixture' },
+            matching: { score: 26 - i }, company: { companyName: `Sort Company ${String(i).padStart(2, '0')}`, companyLocation: i % 2 ? 'Austin' : 'New York' } },
+        });
+      }
+    } finally { store.close(); }
+    async function rows(expected) {
+      await page.waitForFunction(values => {
+        const displayed = [...document.querySelectorAll('tbody .table-title > span:last-child')].map(node => node.firstChild.textContent.trim());
+        return JSON.stringify(displayed) === JSON.stringify(values);
+      }, expected);
+    }
+    await f.login();
+    await page.goto(`${f.address}/jobs?q=Sort`);
+    await page.getByRole('button', { name: 'Sort by Job', exact: true }).click();
+    await rows(titles.slice(0, 20));
+    assert.equal(new URL(page.url()).searchParams.get('sortOrder'), 'asc');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await rows(titles.slice(20));
+    const secondPage = page.url();
+    await page.getByRole('link', { name: `View ${titles[20]}`, exact: true }).click();
+    await page.locator('.back-link').click();
+    assert.equal(page.url(), secondPage);
+    await rows(titles.slice(20));
+    await page.reload();
+    await rows(titles.slice(20));
+    const total = page.getByRole('button', { name: 'Sort by Total match', exact: true });
+    await total.focus();
+    await page.keyboard.press('Enter');
+    await rows([...titles].reverse().slice(0, 20));
+    assert.equal(new URL(page.url()).searchParams.has('cursor'), false);
+    assert.equal(new URL(page.url()).searchParams.has('stack'), false);
+    assert.equal(await total.evaluate(element => element === document.activeElement), true);
+    assert.equal(await total.locator('..').locator('..').getAttribute('aria-sort'), 'ascending');
+    await page.keyboard.press('Enter');
+    await rows(titles.slice(0, 20));
+    await page.goBack();
+    await rows([...titles].reverse().slice(0, 20));
+
+    await page.goto(`${f.address}/companies?q=Sort`);
+    await page.getByRole('button', { name: 'Sync companies', exact: true }).click();
+    await page.getByText(/Company directory is up to date for this sync/).waitFor();
+    const names = titles.map(title => title.replace('Role', 'Company'));
+    await page.getByRole('button', { name: 'Sort by Company', exact: true }).click();
+    await rows(names.slice(0, 20));
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await rows(names.slice(20));
+    const companiesPage = page.url();
+    await page.getByRole('link', { name: `View ${names[20]}`, exact: true }).click();
+    await page.locator('.back-link').click();
+    assert.equal(page.url(), companiesPage);
+    await rows(names.slice(20));
+    await page.getByRole('button', { name: 'Sort by Company', exact: true }).click();
+    await rows([...names].reverse().slice(0, 20));
+    await page.reload();
+    await rows([...names].reverse().slice(0, 20));
+    await page.setViewportSize({ width: 390, height: 844 });
+    const location = page.getByRole('button', { name: 'Sort by Location', exact: true });
+    await location.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"] button[aria-pressed="true"]')?.textContent.includes('Location'));
+    await mkdir(resolve('artifacts/frontend'), { recursive: true });
+    await page.screenshot({ path: resolve('artifacts/frontend/company-sorting-mobile.png'), fullPage: true, animations: 'disabled' });
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});

@@ -27,12 +27,20 @@ export function useVisible() {
 export function useResource(resource, params = {}, options = {}) {
   const { user } = useAuth();
   const visible = useVisible();
-  const { interval, ...rest } = options;
+  const { interval, keepPrevious = false, ...rest } = options;
   return useQuery({
     queryKey: ["user", user?.id, resource, params],
     queryFn: ({ signal }) =>
       api(`/${resource}${queryString(params)}`, { signal }),
     enabled: !!user,
+    ...(keepPrevious
+      ? {
+          placeholderData: (previous, query) =>
+            query?.queryKey[1] === user?.id && query?.queryKey[2] === resource
+              ? previous
+              : undefined,
+        }
+      : {}),
     staleTime: 5000,
     refetchOnWindowFocus: true,
     refetchInterval: visible ? (interval ?? false) : false,
@@ -150,6 +158,25 @@ export function useFilters() {
     });
   }
   return { params, change, next, back };
+}
+export function useSorting(filters) {
+  const sortBy = filters.params.get("sortBy") ?? "id";
+  const sortOrder = filters.params.get("sortOrder") ?? "desc";
+  return {
+    sortBy,
+    sortOrder,
+    params: Object.fromEntries(
+      ["sortBy", "sortOrder"].flatMap((key) =>
+        filters.params.has(key) ? [[key, filters.params.get(key)]] : [],
+      ),
+    ),
+    toggle(key) {
+      filters.change({
+        sortBy: key,
+        sortOrder: sortBy === key && sortOrder === "asc" ? "desc" : "asc",
+      });
+    },
+  };
 }
 export function useRunEvents(run) {
   const { user } = useAuth(),

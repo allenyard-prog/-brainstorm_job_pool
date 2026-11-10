@@ -57,6 +57,8 @@ For production, rebuild after frontend changes and restart the service if the bu
 
 All application endpoints are under `/api/v1`. Cookies have `HttpOnly`, `SameSite=Strict` and `Path=/api/v1`; `Secure` is disabled for this loopback HTTP deployment. Write requests must include `Origin: http://127.0.0.1:3000`. No cross-origin browser access is enabled by default.
 
+Job and company lists support owner-scoped server-side column sorting with `sortBy` and `sortOrder=asc|desc`, including stable cursor pagination. Defaults remain newest ID first; unknown values remain last. Job CSV/clipboard responses follow the selected job order across all pages; bulk assignment accepts filters only. See [job sorting](job-filters.md#column-sorting) and [company sorting](companies.md#column-sorting) for supported fields and cursor behavior. No database migration is needed.
+
 | Endpoint | Result |
 | --- | --- |
 | `POST /auth/login` | Sign in with email/password and set a session cookie |

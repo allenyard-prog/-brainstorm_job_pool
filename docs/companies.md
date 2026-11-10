@@ -12,6 +12,14 @@ Search companies by name or filter by profile. Open a company for its descriptio
 
 Company-list counts follow the selected profile. Company-detail summary counts cover all your profiles; its job table can be filtered independently. Counts represent stored job records, including separate records for the same source posting collected through different profiles. **Marked applied** is confirmed website tracking, not proof of employer submission.
 
+## Column sorting
+
+Company-list headers sort the entire filtered directory. Click again to reverse direction. Controls cover Company, Website, Location, Industry, Collected jobs, Assigned, Marked applied, and Blacklist. The last three count fields use current job states and the selected profile; Blacklist orders the saved boolean flag. Sorting does not hide any company or change its status.
+
+`GET /api/v1/companies` accepts `sortBy=id|name|domain|location|industry|jobCount|assignedCount|markedAppliedCount|isBlacklisted` and `sortOrder=asc|desc`. Default ordering remains `id desc`. Text ignores case/outer whitespace, missing values stay last in both directions, and tied values use the company ID in the selected direction. Search/profile filters combine with ordering. For example: `/api/v1/companies?sortBy=jobCount&sortOrder=desc`.
+
+Sorting is stored in the URL and preserved on reload, browser navigation, and return from company details. A sort change resets pagination. Cursor pagination covers all filtered results and rejects cursors from a different sort. Counts and flags can change while navigating pages, so this is a live view rather than a frozen snapshot. The company detail job table retains its existing ordering.
+
 ## Company blacklist
 
 Each company row shows **Blacklisted** or **Not blacklisted** and an action to **Blacklist company** or **Remove from blacklist**. Changes apply to the current backend user across all their profiles. The affected row is disabled while saving; failures appear inline without automatic retries or optimistic status changes. Company details also show the status, and blacklisted companies and their related jobs remain visible in the directory.

@@ -1,17 +1,9 @@
 import { ServiceError } from "../service/errors.js";
 import { calendarDate } from "./job-filter-values.js";
 
-function cursorDecode(cursor) {
-  if (!cursor) return Number.MAX_SAFE_INTEGER;
-  const text = Buffer.from(cursor, "base64url").toString();
-  if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)))
-    throw new ServiceError(400, "INVALID_CURSOR", "Invalid pagination cursor.");
-  return Number(text);
-}
 export function jobWhere(
   userId,
   {
-    cursor,
     site,
     connectionId,
     companyId,
@@ -29,8 +21,8 @@ export function jobWhere(
     ...scores
   } = {},
 ) {
-  const clauses = ["j.user_id=?", "j.id<?"],
-    params = [userId, cursorDecode(cursor)];
+  const clauses = ["j.user_id=?"],
+    params = [userId];
   const from = collectedFrom ? new Date(collectedFrom) : null,
     to = collectedTo ? new Date(collectedTo) : null;
   if (

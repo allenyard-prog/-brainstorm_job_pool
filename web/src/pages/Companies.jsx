@@ -10,6 +10,7 @@ import { useAuth } from "../auth.jsx";
 import {
   useAction,
   useFilters,
+  useSorting,
   useResource,
   isCompanySyncActive,
   invalidateJobs,
@@ -25,6 +26,7 @@ import {
   Pagination,
   Status,
   SectionHead,
+  SortHeader,
 } from "../components.jsx";
 
 const print = (value) =>
@@ -241,12 +243,18 @@ export function Companies() {
     filters = useFilters();
   const q = filters.params.get("q") ?? "",
     connectionId = filters.params.get("connectionId") ?? "";
-  const query = useResource("companies", {
-    q,
-    connectionId,
-    cursor: filters.params.get("cursor"),
-    limit: 20,
-  });
+  const sorting = useSorting(filters);
+  const query = useResource(
+    "companies",
+    {
+      q,
+      connectionId,
+      cursor: filters.params.get("cursor"),
+      limit: 20,
+      ...sorting.params,
+    },
+    { keepPrevious: true },
+  );
   const location = useLocation();
   return (
     <>
@@ -258,7 +266,7 @@ export function Companies() {
         view.
       </PageHead>
       <SyncControls />
-      <section className="panel">
+      <section className="panel" aria-busy={query.isFetching}>
         <div className="filter-bar">
           <form
             className="search-field"
@@ -297,12 +305,38 @@ export function Companies() {
               <table className="company-table">
                 <thead>
                   <tr>
-                    <th>Company</th>
-                    <th>Location / industry</th>
-                    <th>Collected jobs</th>
-                    <th>Assigned</th>
-                    <th>Marked applied</th>
-                    <th>Blacklist</th>
+                    <SortHeader
+                      label="Company"
+                      sortKey="name"
+                      alternatives={[{ key: "domain", label: "Website" }]}
+                      sorting={sorting}
+                    />
+                    <SortHeader
+                      label="Location"
+                      sortKey="location"
+                      alternatives={[{ key: "industry", label: "Industry" }]}
+                      sorting={sorting}
+                    />
+                    <SortHeader
+                      label="Collected jobs"
+                      sortKey="jobCount"
+                      sorting={sorting}
+                    />
+                    <SortHeader
+                      label="Assigned"
+                      sortKey="assignedCount"
+                      sorting={sorting}
+                    />
+                    <SortHeader
+                      label="Marked applied"
+                      sortKey="markedAppliedCount"
+                      sorting={sorting}
+                    />
+                    <SortHeader
+                      label="Blacklist"
+                      sortKey="isBlacklisted"
+                      sorting={sorting}
+                    />
                     <th>
                       <span className="sr-only">Company details</span>
                     </th>
@@ -347,6 +381,7 @@ export function Companies() {
                           className="icon-button"
                           aria-label={`View ${company.name}`}
                           to={`/companies/${company.id}`}
+                          state={{ from: location.pathname + location.search }}
                         >
                           <Icon name="chevron" size={16} />
                         </Link>

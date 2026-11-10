@@ -11,7 +11,10 @@ export const error = object({ error: object({ code: { type: 'string' }, message:
 export const list = item => object({ items: { type: 'array', items: item }, nextCursor: nullableString });
 export const response = (code, schema) => ({ [code]: schema, 400: error, 401: error, 403: error, 404: error, 409: error, 429: error, 500: error, 503: error });
 export const idParams = { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 } }, additionalProperties: false };
-export const pagination = { cursor: { type: 'string', maxLength: 500 }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 } };
+export const pagination = { cursor: { type: 'string', maxLength: 8192 }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 } };
+const sorting = fields => ({ sortBy: { type: 'string', enum: Object.keys(fields) }, sortOrder: { type: 'string', enum: ['asc','desc'] } });
+export const jobSorting = sorting(jobSortFields);
+export const companySorting = sorting(companySortFields);
 export const jobFilters = {
   excludeBlacklistedCompanies:{type:'boolean'},
   company:{type:'string',maxLength:200},
@@ -33,3 +36,4 @@ export const company = object({ id: { type: 'integer' }, name: { type: 'string' 
 company.properties.isBlacklisted={type:'boolean'};
 export const companyDetail = object({ ...company.properties, details: { type: 'object', additionalProperties: true } });
 export const companySync = object({ id: { type: 'string' }, status: { type: 'string' }, ...Object.fromEntries(['total','processed','created','updated','linked','skipped','warnings'].map(key => [key,{ type: 'integer' }])), queuedAt: { type: 'string' }, startedAt: nullableString, endedAt: nullableString, error: run.properties.error });
+import { jobSortFields, companySortFields } from '../storage/list-sorting.js';
