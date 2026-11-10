@@ -11,10 +11,12 @@ import {
   useFilters,
   useResource,
   useSorting,
+  useListPagination,
 } from "../data.js";
 import { useAuth } from "../auth.jsx";
 import { api, queryString, dateLabel, safeLink } from "../api.js";
 import JobFilterDrawer from "../JobFilterDrawer.jsx";
+import NumberedPagination from "../NumberedPagination.jsx";
 import {
   readJobFilters,
   filterChips,
@@ -28,7 +30,6 @@ import {
   Loading,
   Empty,
   JobsTable,
-  Pagination,
   Status,
   SectionHead,
 } from "../components.jsx";
@@ -61,9 +62,10 @@ export function Jobs() {
     },
     [],
   );
+  const pagination = useListPagination(filters);
   const query = useResource(
     "jobs",
-    { ...listParameters, cursor: filters.params.get("cursor"), limit: 20 },
+    { ...listParameters, ...pagination.request },
     { interval: live.data?.items.length ? 5000 : false, keepPrevious: true },
   );
   const actionsDisabled =
@@ -299,11 +301,6 @@ export function Jobs() {
               showFilterMetrics
               sorting={sorting}
             />
-            <Pagination
-              filters={filters}
-              nextCursor={query.data.nextCursor}
-              busy={query.isFetching}
-            />
           </>
         ) : (
           <Empty
@@ -316,6 +313,16 @@ export function Jobs() {
             Try a different filter or start a collection to bring new jobs into
             your workspace.
           </Empty>
+        )}
+        {!query.error && (
+          <NumberedPagination
+            data={query.data}
+            pagination={pagination}
+            filters={filters}
+            busy={query.isFetching}
+            placeholder={query.isPlaceholderData}
+            label="Jobs"
+          />
         )}
       </section>
       {drawer && (

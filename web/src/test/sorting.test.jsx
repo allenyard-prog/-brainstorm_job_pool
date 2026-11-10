@@ -23,7 +23,7 @@ const requests = (backend, path) =>
 describe("sortable list headers", () => {
   it("restores job sorting, resets pagination, preserves filters and retains keyboard focus", async () => {
     const backend = mockBackend(alice, {
-      "/jobs": ({ json }) => json({ items: [job], nextCursor: "next" }),
+      "/jobs": ({ json, url }) => json({ items: [job], nextCursor: "next", total: 40, page: Number(url.searchParams.get('page') ?? 1), pageSize: 20, totalPages: 2 }),
     });
     renderApp(
       `/jobs?company=Example&connectionId=${profile.id}&sortBy=skillMatch&sortOrder=desc&cursor=old&stack=%5B%22%22%5D`,
@@ -63,8 +63,8 @@ describe("sortable list headers", () => {
     expect(registered.closest("th")).toHaveAttribute("aria-sort", "descending");
     await user.click(screen.getByRole("button", { name: "Next", exact: true }));
     await waitFor(() =>
-      expect(requests(backend, "jobs").at(-1).searchParams.get("cursor")).toBe(
-        "next",
+      expect(requests(backend, "jobs").at(-1).searchParams.get("page")).toBe(
+        "2",
       ),
     );
     expect(requests(backend, "jobs").at(-1).searchParams.get("sortBy")).toBe(

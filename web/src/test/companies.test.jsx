@@ -134,17 +134,17 @@ it("renders company metadata safely and shows assignment independently of tracki
   );
 });
 
-it("preserves company search, profile and cursors in API requests", async () => {
+it("preserves company search, profile and page numbers in API requests", async () => {
   const backend = mockBackend(alice, {
     "/companies": ({ url, json }) =>
       json({
         items: [
           {
             ...company,
-            name: url.searchParams.has("cursor") ? "Next company" : "Acme Labs",
+            name: url.searchParams.get("page") === '2' ? "Next company" : "Acme Labs",
           },
         ],
-        nextCursor: url.searchParams.has("cursor") ? null : "second-page",
+        nextCursor: null, total: 21, page: Number(url.searchParams.get('page') ?? 1), pageSize: 20, totalPages: 2,
       }),
   });
   renderApp("/companies");
@@ -169,7 +169,7 @@ it("preserves company search, profile and cursors in API requests", async () => 
       ([url]) =>
         url.includes("q=Acme") &&
         url.includes("connectionId=profile-a") &&
-        url.includes("cursor=second-page"),
+        url.includes("page=2"),
     ),
   ).toBe(true);
 });

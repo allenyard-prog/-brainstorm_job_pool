@@ -9,9 +9,11 @@ Object.assign(job.properties,{postedDate:nullableString,matchingScores:object({t
 export const detail = object({ ...job.properties, details: { type: 'object', additionalProperties: true }, raw: {} });
 export const error = object({ error: object({ code: { type: 'string' }, message: { type: 'string' }, details: { type: 'object', additionalProperties: true } }) });
 export const list = item => object({ items: { type: 'array', items: item }, nextCursor: nullableString });
+export const pagedList = item => object({ ...list(item).properties, total: { type: 'integer', minimum: 0 }, page: { type: 'integer', minimum: 1 }, pageSize: { type: 'integer', minimum: 1, maximum: 100 }, totalPages: { type: 'integer', minimum: 1 } });
 export const response = (code, schema) => ({ [code]: schema, 400: error, 401: error, 403: error, 404: error, 409: error, 429: error, 500: error, 503: error });
 export const idParams = { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 } }, additionalProperties: false };
 export const pagination = { cursor: { type: 'string', maxLength: 8192 }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 } };
+export const listPagination = { ...pagination, page: { type: 'integer', minimum: 1, maximum: 1000000 } };
 const sorting = fields => ({ sortBy: { type: 'string', enum: Object.keys(fields) }, sortOrder: { type: 'string', enum: ['asc','desc'] } });
 export const jobSorting = sorting(jobSortFields);
 export const companySorting = sorting(companySortFields);

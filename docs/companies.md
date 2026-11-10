@@ -20,6 +20,14 @@ Company-list headers sort the entire filtered directory. Click again to reverse 
 
 Sorting is stored in the URL and preserved on reload, browser navigation, and return from company details. A sort change resets pagination. Cursor pagination covers all filtered results and rejects cursors from a different sort. Counts and flags can change while navigating pages, so this is a live view rather than a frozen snapshot. The company detail job table retains its existing ordering.
 
+## Numbered pagination
+
+The directory shows the matching company total, displayed range, current/total pages, numbered buttons, **Go to page**, and a **Rows per page** selector (10, 20, 50, or 100; default 20). Pagination stays in the URL as `page` / `pageSize` and survives reload, browser history, and return from details. Search, profile, sort, and page-size changes return to page one. Empty results retain a zero count and disabled navigation.
+
+Use `GET /api/v1/companies?page=2&limit=20` with optional search/profile/sort parameters. Numbered responses add `total`, `page`, `pageSize`, and `totalPages`; totals count matching companies belonging to the authenticated user. The selected profile limits both eligible companies and their job counts. Empty directories return page 1 of 1; pages beyond the end are clamped to the last page. Counts and rows use one short read snapshot, and later requests reflect current data.
+
+Omitting `page` preserves existing cursor API behavior. A numbered request cannot also supply a cursor. Cursor-based directory bookmarks now open page one while retaining filters/sorting. The company-detail related-job table and run history retain their existing cursor navigation.
+
 ## Company blacklist
 
 Each company row shows **Blacklisted** or **Not blacklisted** and an action to **Blacklist company** or **Remove from blacklist**. Changes apply to the current backend user across all their profiles. The affected row is disabled while saving; failures appear inline without automatic retries or optimistic status changes. Company details also show the status, and blacklisted companies and their related jobs remain visible in the directory.

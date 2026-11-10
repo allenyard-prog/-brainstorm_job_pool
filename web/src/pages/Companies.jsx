@@ -11,11 +11,13 @@ import {
   useAction,
   useFilters,
   useSorting,
+  useListPagination,
   useResource,
   isCompanySyncActive,
   invalidateJobs,
 } from "../data.js";
 import { api, safeLink, dateLabel } from "../api.js";
+import NumberedPagination from "../NumberedPagination.jsx";
 import {
   Icon,
   PageHead,
@@ -244,13 +246,13 @@ export function Companies() {
   const q = filters.params.get("q") ?? "",
     connectionId = filters.params.get("connectionId") ?? "";
   const sorting = useSorting(filters);
+  const pagination = useListPagination(filters);
   const query = useResource(
     "companies",
     {
       q,
       connectionId,
-      cursor: filters.params.get("cursor"),
-      limit: 20,
+      ...pagination.request,
       ...sorting.params,
     },
     { keepPrevious: true },
@@ -391,11 +393,6 @@ export function Companies() {
                 </tbody>
               </table>
             </div>
-            <Pagination
-              filters={filters}
-              nextCursor={query.data.nextCursor}
-              busy={query.isFetching}
-            />
           </>
         ) : (
           !query.error && (
@@ -412,6 +409,16 @@ export function Companies() {
                 : "Collect jobs, then click Sync companies to organize their company information."}
             </Empty>
           )
+        )}
+        {!query.error && (
+          <NumberedPagination
+            data={query.data}
+            pagination={pagination}
+            filters={filters}
+            busy={query.isFetching}
+            placeholder={query.isPlaceholderData}
+            label="Companies"
+          />
         )}
       </section>
       <p className="company-count-note">

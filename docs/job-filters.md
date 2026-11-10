@@ -47,6 +47,16 @@ Text sorts ignore case and surrounding whitespace. Numeric scores retain their f
 
 Sort-aware cursors retain the last value and ID, and are valid only for their resource, column, and direction. A mismatched cursor returns 400; start again from page one after changing sorting. Existing numeric cursors remain valid for default newest-first ordering. Pagination is not a database snapshot: changing a record's selected sort value while paging can change its position. Sorting requires no schema migration and does not alter job metadata.
 
+## Numbered pagination
+
+The job list shows the matching total, the displayed row range, current/total pages, page-number buttons, and **Go to page**. **Rows per page** offers 10, 20 (default), 50, or 100 records. Page numbers and page size live in the URL as `page` and `pageSize`, so reload, browser history, and returning from job details restore the list. Search, filter, sort, or page-size changes return to page one while preserving the other selections. Empty results still show their zero total and disabled navigation.
+
+The dashboard requests `GET /api/v1/jobs?page=3&limit=20` together with the applied filters/sorting. Supplying `page` adds `total`, `page`, `pageSize`, and `totalPages` to the existing `items` / `nextCursor` response. Counts cover all matching jobs owned by the current user, not only the displayed page. Empty results use page 1 of 1. An obsolete/out-of-range page is clamped to the last available page; the frontend repairs its URL without adding a history entry.
+
+Numbered requests accept positive integer pages up to 1,000,000 and `limit` from 1 to 100. Do not combine `page` with `cursor`. API clients that omit `page` retain cursor pagination and the original response fields. Old cursor-based dashboard bookmarks open page one with their filters/sorting preserved. CSV, clipboard, and assignment still operate on all matches; the UI does not send page settings to these actions.
+
+Counts and rows share a short SQLite WAL read snapshot on the database worker; concurrent job saves can continue. Later requests reflect current data, so new/deleted rows or changed sort values can move page boundaries. No schema migration is needed.
+
 ## Storage and migration
 
 Schema version 6 adds the separately managed company blacklist flag. Queries inspect linked companies at read time, so flag changes affect filtered lists and bulk actions without rewriting job metadata. Company directory/detail views continue to include blacklisted records.

@@ -340,19 +340,19 @@ it("shows clipboard permission failures and allows a manual retry without assign
   ).toBe(false);
 });
 
-it("preserves filters through cursor navigation and back navigation", async () => {
+it("preserves filters through numbered pagination and previous-page navigation", async () => {
   const backend = mockBackend(alice, {
     "/jobs": ({ url, json }) =>
       json({
         items: [
           {
             ...job,
-            title: url.searchParams.has("cursor")
+            title: url.searchParams.get('page') === '2'
               ? "Second page opportunity"
               : "First page opportunity",
           },
         ],
-        nextCursor: url.searchParams.has("cursor") ? null : "page-two",
+        nextCursor: null, total: 21, page: Number(url.searchParams.get('page') ?? 1), pageSize: 20, totalPages: 2,
       }),
   });
   renderApp(`/jobs?connectionId=${profile.id}&q=Engineer&status=saved`);

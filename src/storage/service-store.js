@@ -3,6 +3,7 @@ import { CompanyStore, companyRpcMethods } from './company-store.js';
 import { ServiceError, notFound } from '../service/errors.js';
 import { jobWhere } from './job-filters.js';
 import { jobSortFields, listSorting } from './list-sorting.js';
+import { readListPage } from './list-pagination.js';
 
 const now = () => new Date().toISOString();
 const active = "('queued','starting','running','stop_requested')";
@@ -151,12 +152,14 @@ export class ServiceStore extends CompanyStore {
     const rows = this.db.prepare('SELECT id,type,payload_json,created_at FROM run_events WHERE user_id=? AND run_id=? AND id>? ORDER BY id LIMIT ?').all(userId, runId, after, limit);
     return { items: rows.map(row => ({ id: row.id, type: row.type, payload: JSON.parse(row.payload_json), createdAt: row.created_at })), nextCursor: rows.at(-1)?.id ?? after };
   }
-  listJobs(userId, { limit = 20, includeDetails = false, includeApplicationUrl = false, ...filters } = {}) {
+  listJobs(userId, { limit = 20, page, includeDetails = false, includeApplicationUrl = false, ...filters } = {}) {
     const { where, params } = jobWhere(userId, filters);
     const sorting = listSorting('jobs', jobSortFields, filters);
-    const rows = this.db.prepare(`SELECT j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,j.posted_date,j.match_total_score,j.match_skill_score,j.match_industry_score,p.state,p.website_status,${sorting.expression} AS sort_value${includeDetails ? ',j.details_json' : ''}${includeApplicationUrl ? ",json_extract(j.details_json,'$.applicationUrl') AS application_url" : ''} FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN connections connection ON connection.id=j.connection_id AND connection.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} AND ${sorting.where} ORDER BY ${sorting.order} LIMIT ?`).all(...params, ...sorting.params, limit + 1);
+    const { rows, metadata } = readListPage(this.db, { page, limit, cursor: filters.cursor },
+      () => this.db.prepare(`SELECT count(*) AS total FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where}`).get(...params).total,
+      (size, offset) => this.db.prepare(`SELECT j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,j.posted_date,j.match_total_score,j.match_skill_score,j.match_industry_score,p.state,p.website_status,${sorting.expression} AS sort_value${includeDetails ? ',j.details_json' : ''}${includeApplicationUrl ? ",json_extract(j.details_json,'$.applicationUrl') AS application_url" : ''} FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN connections connection ON connection.id=j.connection_id AND connection.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} AND ${sorting.where} ORDER BY ${sorting.order} LIMIT ? OFFSET ?`).all(...params, ...sorting.params, size, offset));
     const items = rows.slice(0, limit).map(row => ({ ...jobDto(row), ...(includeDetails ? { details: JSON.parse(row.details_json) } : {}), ...(includeApplicationUrl ? { applicationUrl: row.application_url } : {}) }));
-    return { items, nextCursor: rows.length > limit ? sorting.cursor(rows[limit - 1]) : null };
+    return { items, nextCursor: rows.length > limit ? sorting.cursor(rows[limit - 1]) : null, ...metadata };
   }
   assignJobs(userId, filters = {}) {
     const { where, params } = jobWhere(userId, { ...filters, availableOnly: true });

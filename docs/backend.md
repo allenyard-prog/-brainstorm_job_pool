@@ -59,6 +59,8 @@ All application endpoints are under `/api/v1`. Cookies have `HttpOnly`, `SameSit
 
 Job and company lists support owner-scoped server-side column sorting with `sortBy` and `sortOrder=asc|desc`, including stable cursor pagination. Defaults remain newest ID first; unknown values remain last. Job CSV/clipboard responses follow the selected job order across all pages; bulk assignment accepts filters only. See [job sorting](job-filters.md#column-sorting) and [company sorting](companies.md#column-sorting) for supported fields and cursor behavior. No database migration is needed.
 
+The main job/company screens use numbered pagination. Add `page` (1–1,000,000) and `limit` (1–100, default 20) to `/api/v1/jobs` or `/api/v1/companies` for `total`, effective `page`, `pageSize`, and `totalPages` metadata alongside `items` / `nextCursor`. Totals apply all ownership/filter conditions. Out-of-range pages clamp to the last page; an empty result is page 1 of 1. Count and rows share a short WAL read transaction in the database worker. `page` and `cursor` cannot be combined. Omitting `page` retains the cursor response contract for exports, related jobs, and existing clients. See [job pagination](job-filters.md#numbered-pagination) and [company pagination](companies.md#numbered-pagination).
+
 | Endpoint | Result |
 | --- | --- |
 | `POST /auth/login` | Sign in with email/password and set a session cookie |

@@ -1149,3 +1149,75 @@ test('browser UI: job and company sorting spans pages, restores URLs and support
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
+test('browser UI: numbered jobs/company pagination shows totals, page sizes, jumps and empty results', async () => {
+  const f = await browserFixture();
+  const { page } = f;
+  try {
+    const store = new ServiceStore(f.config.dbPath, { connectionId: f.aliceProfile.id, userId: f.users.alice.id });
+    try {
+      for (let i = 0; i < 55; i++) {
+        const name = `Page Company ${String(i % 25).padStart(2, '0')}`;
+        store.saveJob('jobright', accountKey(f.aliceProfile.label), { id: `page-${i}`, title: `Page Role ${String(i).padStart(2, '0')}`, company: name, url: 'https://example.test/job', details: { description: { text: 'Pagination fixture' }, company: { companyName: name } } });
+      }
+    } finally { store.close(); }
+    await f.login();
+    await page.goto(`${f.address}/jobs?q=Page`);
+    await page.getByText('Showing 1–20 of 55 jobs', { exact: true }).waitFor();
+    await page.getByRole('combobox', { name: 'Rows per page' }).selectOption('10');
+    await page.getByText('Page 1 of 6', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Page 6', exact: true }).click();
+    await page.getByText('Showing 51–55 of 55 jobs', { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('page'), '6');
+    assert.equal(new URL(page.url()).searchParams.get('pageSize'), '10');
+    assert.equal(await page.getByRole('button', { name: 'Next', exact: true }).isDisabled(), true);
+    const jobPage = page.url();
+    await page.getByRole('link', { name: 'View Page Role 04', exact: true }).click();
+    await page.locator('.back-link').click();
+    assert.equal(page.url(), jobPage);
+    await page.reload();
+    await page.getByText('Showing 51–55 of 55 jobs', { exact: true }).waitFor();
+    await page.getByRole('spinbutton', { name: 'Go to page' }).fill('3');
+    await page.getByRole('button', { name: 'Go', exact: true }).click();
+    await page.getByText('Showing 21–30 of 55 jobs', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Page 3', exact: true }).getAttribute('aria-current'), 'page');
+    await page.goBack();
+    await page.getByText('Showing 51–55 of 55 jobs', { exact: true }).waitFor();
+    await page.getByRole('combobox', { name: 'Rows per page' }).selectOption('50');
+    await page.getByText('Showing 1–50 of 55 jobs', { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.has('page'), false);
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByText('Showing 51–55 of 55 jobs', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sort by Job', exact: true }).click();
+    await page.getByText('Showing 1–50 of 55 jobs', { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('q'), 'Page');
+    await page.getByRole('combobox', { name: 'Rows per page' }).selectOption('10');
+    await page.getByText('Showing 1–10 of 55 jobs', { exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('navigation', { name: 'Jobs pagination' }).scrollIntoViewIfNeeded();
+    await mkdir(resolve('artifacts/frontend'), { recursive: true });
+    await page.screenshot({ path: resolve('artifacts/frontend/jobs-pagination-mobile.png'), fullPage: true, animations: 'disabled' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+    await page.goto(`${f.address}/companies?q=Page`);
+    await page.getByRole('button', { name: 'Sync companies', exact: true }).click();
+    await page.getByText(/Company directory is up to date for this sync/).waitFor();
+    await page.getByText('Showing 1–20 of 25 companies', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Page 2', exact: true }).click();
+    await page.getByText('Showing 21–25 of 25 companies', { exact: true }).waitFor();
+    await page.getByRole('combobox', { name: 'Rows per page' }).selectOption('10');
+    await page.getByText('Showing 1–10 of 25 companies', { exact: true }).waitFor();
+    await page.getByRole('spinbutton', { name: 'Go to page' }).fill('3');
+    await page.getByRole('button', { name: 'Go', exact: true }).click();
+    await page.getByText('Showing 21–25 of 25 companies', { exact: true }).waitFor();
+    const companyPage = page.url();
+    await page.reload();
+    await page.getByText('Showing 21–25 of 25 companies', { exact: true }).waitFor();
+    assert.equal(page.url(), companyPage);
+    await page.getByRole('searchbox', { name: 'Search companies', exact: true }).fill('not-found');
+    await page.getByRole('button', { name: 'Search companies', exact: true }).click();
+    await page.getByText('Showing 0–0 of 0 companies', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Next', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Previous', exact: true }).isDisabled(), true);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});

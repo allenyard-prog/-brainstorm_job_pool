@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Store } from "./database.js";
 import { ServiceError, notFound } from "../service/errors.js";
 import { companySortFields, listSorting } from './list-sorting.js';
+import { readListPage } from './list-pagination.js';
 import {
   companyNameKey,
   extractCompany,
@@ -503,7 +504,7 @@ export class CompanyStore extends Store {
       return this.getCompanySync(sync.user_id, id);
     });
   }
-  listCompanies(userId, { cursor, limit = 20, q, connectionId, sortBy, sortOrder } = {}) {
+  listCompanies(userId, { cursor, limit = 20, page, q, connectionId, sortBy, sortOrder } = {}) {
     const sorting = listSorting('companies', companySortFields, { cursor, sortBy, sortOrder });
     const clauses = ["c.user_id=?", sorting.where],
       params = [userId, ...sorting.params];
@@ -519,19 +520,22 @@ export class CompanyStore extends Store {
     }
     // Counts are computed from current job states; assignments and tracking do not need another sync.
     const counts = `SELECT company_id,count(*) AS job_count,sum(assigned_at IS NOT NULL) AS assigned_count,sum(p.state='mark_confirmed') AS applied_count FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.user_id=? ${connectionId ? "AND j.connection_id=?" : ""} GROUP BY company_id`;
-    const rows = this.db
+    const { rows, metadata } = readListPage(this.db, { page, limit, cursor },
+      () => this.db.prepare(`SELECT count(*) AS total FROM companies c WHERE ${clauses.join(' AND ')}`).get(...params).total,
+      (size, offset) => this.db
       .prepare(
-        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.is_blacklisted,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count,${sorting.expression} AS sort_value FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY ${sorting.order} LIMIT ?`,
+        `SELECT c.id,c.name,c.website_url,c.domain,c.location,c.industry,c.is_blacklisted,c.created_at,c.updated_at,c.last_synced_at,coalesce(n.job_count,0) AS job_count,coalesce(n.assigned_count,0) AS assigned_count,coalesce(n.applied_count,0) AS applied_count,${sorting.expression} AS sort_value FROM companies c LEFT JOIN (${counts}) n ON n.company_id=c.id WHERE ${clauses.join(" AND ")} ORDER BY ${sorting.order} LIMIT ? OFFSET ?`,
       )
       .all(
         userId,
         ...(connectionId ? [connectionId] : []),
         ...params,
-        limit + 1,
-      );
+        size, offset,
+      ));
     const items = rows.slice(0, limit).map(companyDto);
     return {
       items,
+      ...metadata,
       nextCursor:
         rows.length > limit
           ? sorting.cursor(rows[limit - 1])

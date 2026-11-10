@@ -114,6 +114,7 @@ export function useFilters() {
       const next = new URLSearchParams(previous);
       next.delete("cursor");
       next.delete("stack");
+      next.delete("page");
       for (const [key, value] of Object.entries(values)) {
         if (value) next.set(key, value);
         else next.delete(key);
@@ -157,7 +158,56 @@ export function useFilters() {
       return result;
     });
   }
-  return { params, change, next, back };
+  function setPage(page, { replace = false, pageSize } = {}) {
+    setParams(
+      (previous) => {
+        const result = new URLSearchParams(previous);
+        result.delete("cursor");
+        result.delete("stack");
+        if (page > 1) result.set("page", String(page));
+        else result.delete("page");
+        if (pageSize !== undefined) {
+          if (pageSize === 20) result.delete("pageSize");
+          else result.set("pageSize", String(pageSize));
+        }
+        return result;
+      },
+      { replace },
+    );
+  }
+  return { params, change, next, back, setPage };
+}
+export const listPageSizes = [10, 20, 50, 100];
+export function useListPagination(filters) {
+  const rawPage = filters.params.get("page"),
+    rawSize = filters.params.get("pageSize");
+  const page =
+    Number.isSafeInteger(Number(rawPage)) &&
+    Number(rawPage) >= 1 &&
+    Number(rawPage) <= 1000000
+      ? Number(rawPage)
+      : 1;
+  const pageSize = listPageSizes.includes(Number(rawSize))
+    ? Number(rawSize)
+    : 20;
+  // Legacy UI cursor bookmarks open page one; cursor API clients remain supported.
+  useEffect(() => {
+    if (
+      filters.params.has("cursor") ||
+      filters.params.has("stack") ||
+      (rawPage !== null && Number(rawPage) !== page) ||
+      (rawSize !== null && Number(rawSize) !== pageSize)
+    ) {
+      filters.setPage(page, { replace: true, pageSize });
+    }
+  }, [filters.params.toString(), page, pageSize]);
+  return {
+    page,
+    pageSize,
+    request: { page, limit: pageSize },
+    goTo: (value, options) => filters.setPage(value, options),
+    resize: (value) => filters.setPage(1, { pageSize: Number(value) }),
+  };
 }
 export function useSorting(filters) {
   const sortBy = filters.params.get("sortBy") ?? "id";
