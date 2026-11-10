@@ -67,7 +67,7 @@ test('version-one databases gain persistent assignment without changing content 
     store.db.exec(removeCompanySchema + 'ALTER TABLE jobs DROP COLUMN assigned_at; PRAGMA user_version=1');
     store.close();
     store = new ServiceStore(path);
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6);
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 7);
     assert.equal(store.jobDetail(user.id, id).assignedAt, null);
     assert.deepEqual(store.jobDetail(user.id, id).details, job.details);
     assert.equal(store.assignJobs(user.id).assignedCount, 1);
@@ -97,7 +97,7 @@ test('version-two migration adds empty company storage and retains assignment, r
     // Exercise the actual migration against the existing connection.
     migrate(store.db,':memory:');
     const result=store.jobDetail(user.id,id,true);
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version,6);
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version,7);
     assert.equal(result.companyId,null);assert.equal(result.assignedAt,assigned);assert.equal(result.processingState,'mark_pending');
     assert.deepEqual(result.details,job.details);assert.deepEqual(result.raw,job.raw);
     assert.equal(store.listCompanies(user.id).items.length,0);assert.equal(store.latestCompanySync(user.id),null);

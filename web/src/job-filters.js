@@ -1,9 +1,12 @@
+import { profileLabel } from "./profiles.js";
+
 export const scoreRanges = [
   ["totalMatch", "Total match"],
   ["skillMatch", "Skill match"],
   ["industryMatch", "Industry match"],
 ];
 export const drawerKeys = [
+  "preferredTitleId",
   "excludeBlacklistedCompanies",
   "company",
   "companyId",
@@ -158,8 +161,25 @@ export function filterChips(filters, profiles = [], sites = []) {
   add(
     ["connectionId"],
     "Profile",
-    profiles.find((profile) => profile.id === filters.connectionId)?.label ??
+    profileLabel(
+      profiles.find((profile) => profile.id === filters.connectionId),
       filters.connectionId,
+    ),
+  );
+  const preferredProfile = profiles.find((profile) =>
+    profile.titles?.some((title) => title.id === filters.preferredTitleId),
+  );
+  const preferred = preferredProfile?.titles?.find(
+    (title) => title.id === filters.preferredTitleId,
+  );
+  add(
+    ["preferredTitleId"],
+    "Preferred title",
+    filters.preferredTitleId === "unselected"
+      ? "No title selected"
+      : preferred
+        ? `${profileLabel(preferredProfile)} · ${preferred.title}${preferred.isArchived ? " (archived)" : ""}`
+        : filters.preferredTitleId,
   );
   add(
     ["site"],

@@ -26,6 +26,8 @@ Open **http://127.0.0.1:3000** and sign in with your backend account. Interactiv
 
 Backend authentication and job-site authentication are separate. Signing in to this API does not automatically authenticate a Jobright account. Each user adds their own connection and queues its authentication or collection operation. A collection run can authenticate as part of its normal workflow.
 
+Profiles also support optional person names and profile-specific specialization labels. Owner-scoped `PATCH /connections/:id`, `POST /connections/:id/titles`, and `PATCH /connections/:id/titles/:titleId` manage this metadata. `PATCH /jobs/:id` sets or clears `preferredTitleId`. Schema version 7 preserves existing content and tracking; these actions perform no job-site requests. See [profile specializations](profile-specializations.md) for response fields, filters, archiving, and UI behavior.
+
 ## React dashboard
 
 The frontend is a JavaScript/JSX npm workspace in `web/`, using React, Vite, React Router, TanStack Query, and CSS design tokens. Run `.\npm.cmd install` after updating the checkout; dependencies share the root lockfile. Fresh installations use the existing `setup.cmd` workflow.

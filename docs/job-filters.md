@@ -2,6 +2,8 @@
 
 Open **Collected jobs → Filters** to refine the list in a right-side drawer. Search stays in the toolbar. Company, posted/registered dates, total/skill/industry scores, profile, website, and tracking are combined with AND.
 
+**Preferred title** adds All preferred titles, No title selected, and profile-grouped role labels, including archived labels. Use `preferredTitleId=UUID` or `preferredTitleId=unselected` across listing, CSV, clipboard, and assignment. It is independent of the scraped job title and Assigned/Jobright tracking. The new sortable column uses `sortBy=preferredTitle`. See [profile specializations](profile-specializations.md) for management and archive behavior.
+
 Edits are drafts until **Apply filters**. Reset clears the draft; Apply commits it. Cancel, Escape, the close button, and the backdrop discard unapplied edits. Applied groups appear as removable chips; Clear filters removes drawer filters while keeping toolbar search. Applying or removing a filter resets pagination. URLs retain filters across reload, browser navigation, and return from job details.
 
 ## Dates and scores

@@ -1,6 +1,6 @@
 import { scrubSecrets } from './crypto.js';
 
-const columns = ['id', 'title', 'company', 'url', 'site', 'connectionId', 'sourceJobId', 'processingState', 'websiteStatus', 'firstSeenAt', 'lastScrapedAt', 'assignedAt', 'details'];
+const columns = ['id', 'title', 'company', 'url', 'site', 'connectionId', 'sourceJobId', 'processingState', 'websiteStatus', 'firstSeenAt', 'lastScrapedAt', 'assignedAt', 'details', 'preferredTitleId', 'preferredTitle', 'preferredTitleArchived'];
 
 function spreadsheetText(value) {
   let text = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);

@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useResource, useAction } from "./data.js";
 import { dateLabel, canRetry, isActive } from "./api.js";
+import { profileLabel } from "./profiles.js";
+import PreferredTitleSelect from "./PreferredTitleSelect.jsx";
 
 export function Icon({ name, size = 18, ...props }) {
   const paths = {
@@ -234,7 +236,7 @@ export function ProfileSelect({
         <option value="">All profiles</option>
         {profiles.map((profile) => (
           <option key={profile.id} value={profile.id}>
-            {profile.label}
+            {profileLabel(profile)}
           </option>
         ))}
       </select>
@@ -354,7 +356,7 @@ export function StartCollection({ profiles, initialProfile = "", onClose }) {
           >
             {profiles.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.label}
+                {profileLabel(item)}
               </option>
             ))}
           </select>
@@ -516,8 +518,9 @@ export function RunTable({ runs, profiles = [] }) {
                 </Link>
               </td>
               <td className="secondary">
-                {profiles.find((profile) => profile.id === run.connectionId)
-                  ?.label ?? "Imported account"}
+                {profileLabel(
+                  profiles.find((profile) => profile.id === run.connectionId),
+                )}
               </td>
               <td>
                 <Status value={run.status} />
@@ -590,6 +593,7 @@ export function JobsTable({
   profiles = [],
   showFilterMetrics = false,
   sorting,
+  allowPreferredTitleSelection = false,
 }) {
   const location = useLocation();
   return (
@@ -604,6 +608,13 @@ export function JobsTable({
               sorting={sorting}
             />
             <SortHeader label="Profile" sortKey="profile" sorting={sorting} />
+            {allowPreferredTitleSelection && (
+              <SortHeader
+                label="Preferred title"
+                sortKey="preferredTitle"
+                sorting={sorting}
+              />
+            )}
             <SortHeader label="Tracking" sortKey="tracking" sorting={sorting} />
             {showFilterMetrics && (
               <SortHeader
@@ -655,9 +666,21 @@ export function JobsTable({
                 </Link>
               </td>
               <td className="secondary">
-                {profiles.find((profile) => profile.id === job.connectionId)
-                  ?.label ?? job.site}
+                {profileLabel(
+                  profiles.find((profile) => profile.id === job.connectionId),
+                  job.site,
+                )}
               </td>
+              {allowPreferredTitleSelection && (
+                <td>
+                  <PreferredTitleSelect
+                    job={job}
+                    profile={profiles.find(
+                      (profile) => profile.id === job.connectionId,
+                    )}
+                  />
+                </td>
+              )}
               <td>
                 <Status
                   value={job.assignedAt ? "assigned" : job.processingState}

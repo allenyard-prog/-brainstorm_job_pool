@@ -9,7 +9,10 @@ export const jobSortFields = {
   id: number("j.id"),
   title: text("j.title"),
   company: text("j.company"),
-  profile: text("coalesce(connection.label,j.site)"),
+  profile: text(
+    "coalesce(nullif(connection.person_name,''),connection.label,j.site)",
+  ),
+  preferredTitle: text("preferred.title"),
   tracking: text(
     "CASE WHEN j.assigned_at IS NOT NULL THEN 'Assigned' WHEN p.state='saved' THEN 'Saved' WHEN p.state='mark_confirmed' THEN 'Marked applied' WHEN p.state='mark_pending' THEN 'Update unconfirmed' END",
   ),

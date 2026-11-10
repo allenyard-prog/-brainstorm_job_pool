@@ -2,8 +2,14 @@ const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
 const object = properties => ({ type: 'object', additionalProperties: false, properties });
 export const user = object({ id: { type: 'string' }, email: { type: 'string' }, role: { type: 'string' }, createdAt: { type: 'string' } });
 export const connection = object({ id: { type: 'string' }, site: { type: 'string' }, label: { type: 'string' }, authStatus: { type: 'string' }, createdAt: { type: 'string' }, updatedAt: { type: 'string' } });
+export const profileTitle = object({ id: { type: 'string', format: 'uuid' }, title: { type: 'string' }, isArchived: { type: 'boolean' } });
+export const personName = { anyOf: [{ type: 'string', maxLength: 200 }, { type: 'null' }] };
+export const titleName = { type: 'string', minLength: 1, maxLength: 100 };
+export const preferredTitleId = { anyOf: [{ const: null }, { type: 'string', format: 'uuid' }] };
+Object.assign(connection.properties, { personName, titles: { type: 'array', items: profileTitle } });
 export const run = object({ id: { type: 'string' }, connectionId: nullableString, site: { type: 'string' }, kind: { type: 'string' }, transport: { type: 'string' }, options: { type: 'object', additionalProperties: true }, status: { type: 'string' }, phase: nullableString, queuedAt: { type: 'string' }, startedAt: nullableString, endedAt: nullableString, heartbeatAt: nullableString, counters: { type: 'object', additionalProperties: { type: 'number' } }, error: { anyOf: [object({ code: { type: 'string' }, message: { type: 'string' } }), { type: 'null' }] }, forced: { type: 'boolean' }, parentRunId: nullableString });
 export const job = object({ id: { type: 'integer' }, connectionId: nullableString, companyId: { anyOf: [{ type: 'integer' }, { type: 'null' }] }, companyName: nullableString, site: { type: 'string' }, sourceJobId: { type: 'string' }, url: { type: 'string' }, title: { type: 'string' }, company: nullableString, firstSeenAt: { type: 'string' }, lastScrapedAt: { type: 'string' }, assignedAt: nullableString, processingState: nullableString, websiteStatus: nullableString });
+Object.assign(job.properties, { preferredTitleId, preferredTitle: nullableString, preferredTitleArchived: { type: 'boolean' } });
 const nullableScore={anyOf:[{type:'number',minimum:0,maximum:100},{type:'null'}]};
 Object.assign(job.properties,{postedDate:nullableString,matchingScores:object({total:nullableScore,skill:nullableScore,industry:nullableScore})});
 export const detail = object({ ...job.properties, details: { type: 'object', additionalProperties: true }, raw: {} });
@@ -18,6 +24,7 @@ const sorting = fields => ({ sortBy: { type: 'string', enum: Object.keys(fields)
 export const jobSorting = sorting(jobSortFields);
 export const companySorting = sorting(companySortFields);
 export const jobFilters = {
+  preferredTitleId: { anyOf: [{ type: 'string', format: 'uuid' }, { const: 'unselected' }] },
   excludeBlacklistedCompanies:{type:'boolean'},
   company:{type:'string',maxLength:200},
   postedFrom:{type:'string',format:'date',maxLength:10},

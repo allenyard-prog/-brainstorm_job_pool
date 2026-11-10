@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { companySchema } from './company-schema.js';
 import { migrateJobFilters, isRevertedChatSchema } from './job-filter-values.js';
+import { profileTitlesSchema } from './profile-schema.js';
 
 export const activeStates = ['queued', 'starting', 'running', 'stop_requested'];
 export const executingStates = ['starting', 'running', 'stop_requested'];
@@ -28,23 +29,33 @@ CREATE INDEX processing_state ON job_processing(account_key,state);
 
 export function migrate(db, path) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 6) throw new Error('Database schema is newer than this application.');
-  if (version === 6) return;
+  if (version > 7) throw new Error('Database schema is newer than this application.');
+  if (version === 7) return;
+  if (version === 6) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = db.prepare('PRAGMA user_version').get().user_version;
+      if (current === 6) db.exec(profileTitlesSchema + 'PRAGMA user_version=7');
+      else if (current !== 7) throw new Error('Database schema changed during migration.');
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    return;
+  }
   if (version === 5) {
     db.exec('BEGIN IMMEDIATE');
     try {
       const current=db.prepare('PRAGMA user_version').get().user_version;
       if(current===5)db.exec('ALTER TABLE companies ADD COLUMN is_blacklisted INTEGER NOT NULL DEFAULT 0 CHECK(is_blacklisted IN (0,1)); PRAGMA user_version=6');
-      else if(current!==6)throw new Error('Database schema changed during migration.');
+      else if(![6,7].includes(current))throw new Error('Database schema changed during migration.');
       db.exec('COMMIT');
     } catch(error) {db.exec('ROLLBACK');throw error;}
-    return;
+    return migrate(db,path);
   }
   if (version === 3 || version === 4) {
     db.exec('BEGIN IMMEDIATE');
     try {
       const current=db.prepare('PRAGMA user_version').get().user_version;
-      if(current!==5&&current!==6){
+      if(![5,6,7].includes(current)){
         if(current===4&&!isRevertedChatSchema(db))throw new Error('Unrecognized version-4 database schema.');
         if(![3,4].includes(current))throw new Error('Database schema changed during migration.');
         migrateJobFilters(db);db.exec('PRAGMA user_version=5');

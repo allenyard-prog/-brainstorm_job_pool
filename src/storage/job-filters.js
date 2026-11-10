@@ -8,6 +8,7 @@ export function jobWhere(
     connectionId,
     companyId,
     company,
+    preferredTitleId,
     q,
     status,
     collectedFrom,
@@ -23,6 +24,8 @@ export function jobWhere(
 ) {
   const clauses = ["j.user_id=?"],
     params = [userId];
+  if (preferredTitleId === 'unselected') clauses.push('j.preferred_title_id IS NULL');
+  else if (preferredTitleId) { clauses.push('j.preferred_title_id=?'); params.push(preferredTitleId); }
   const from = collectedFrom ? new Date(collectedFrom) : null,
     to = collectedTo ? new Date(collectedTo) : null;
   if (

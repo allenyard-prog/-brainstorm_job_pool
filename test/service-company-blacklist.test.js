@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ServiceStore } from "../src/storage/service-store.js";
 import { migrate } from "../src/storage/migrations.js";
+import { removeProfileSchema } from './helpers/profile-schema.js';
 import { serviceFixture } from "./helpers/service-fixture.js";
 import { accountKey } from "../src/core/security.js";
 
@@ -396,10 +397,10 @@ test("version-five migration defaults flags without changing jobs, company metad
     const job = store.jobDetail(user.id, id, true),
       company = store.companyDetail(user.id, job.companyId);
     store.db.exec(
-      "ALTER TABLE companies DROP COLUMN is_blacklisted; PRAGMA user_version=5",
+      removeProfileSchema + "ALTER TABLE companies DROP COLUMN is_blacklisted; PRAGMA user_version=5",
     );
     migrate(store.db, ":memory:");
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 6);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 7);
     assert.deepEqual(store.jobDetail(user.id, id, true), job);
     assert.deepEqual(store.companyDetail(user.id, job.companyId), company);
     assert.throws(() =>

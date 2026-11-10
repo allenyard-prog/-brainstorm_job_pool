@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "./components.jsx";
+import { profileLabel } from "./profiles.js";
 import {
   drawerKeys,
   filterDraft,
@@ -238,14 +239,60 @@ export default function JobFilterDrawer({
             <select
               aria-label="Profile"
               value={draft.connectionId}
-              onChange={(event) => change("connectionId", event.target.value)}
+              onChange={(event) => {
+                const connectionId = event.target.value;
+                setDraft((previous) => ({
+                  ...previous,
+                  connectionId,
+                  preferredTitleId:
+                    connectionId &&
+                    previous.preferredTitleId &&
+                    previous.preferredTitleId !== "unselected" &&
+                    !profiles
+                      .find((profile) => profile.id === connectionId)
+                      ?.titles?.some(
+                        (title) => title.id === previous.preferredTitleId,
+                      )
+                      ? ""
+                      : previous.preferredTitleId,
+                }));
+              }}
             >
               <option value="">All profiles</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.label}
+                  {profileLabel(profile)}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="drawer-field">
+            Preferred title
+            <select
+              aria-label="Preferred title"
+              value={draft.preferredTitleId}
+              onChange={(event) =>
+                change("preferredTitleId", event.target.value)
+              }
+            >
+              <option value="">All preferred titles</option>
+              <option value="unselected">No title selected</option>
+              {profiles
+                .filter(
+                  (profile) =>
+                    !draft.connectionId || profile.id === draft.connectionId,
+                )
+                .filter((profile) => profile.titles?.length)
+                .map((profile) => (
+                  <optgroup key={profile.id} label={profileLabel(profile)}>
+                    {profile.titles.map((title) => (
+                      <option key={title.id} value={title.id}>
+                        {title.title}
+                        {title.isArchived ? " (archived)" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
             </select>
           </label>
           <label className="drawer-field">

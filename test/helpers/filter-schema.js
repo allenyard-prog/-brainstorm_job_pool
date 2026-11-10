@@ -1,5 +1,7 @@
 import { filterColumns } from "../../src/storage/job-filter-values.js";
+import { removeProfileSchema } from './profile-schema.js';
 export const removeFilterSchema =
+  removeProfileSchema +
   "ALTER TABLE companies DROP COLUMN is_blacklisted;" +
   [...filterColumns, "first_seen_at"]
     .map((column) => `DROP INDEX jobs_filter_${column};`)

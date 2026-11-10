@@ -17,6 +17,7 @@ import { useAuth } from "../auth.jsx";
 import { api, queryString, dateLabel, safeLink } from "../api.js";
 import JobFilterDrawer from "../JobFilterDrawer.jsx";
 import NumberedPagination from "../NumberedPagination.jsx";
+import { profileLabel } from "../profiles.js";
 import {
   readJobFilters,
   filterChips,
@@ -300,6 +301,7 @@ export function Jobs() {
               profiles={profiles.data}
               showFilterMetrics
               sorting={sorting}
+              allowPreferredTitleSelection
             />
           </>
         ) : (
@@ -705,7 +707,13 @@ export function JobDetail() {
                     : ""}
                 </dd>
                 <dt>Profile</dt>
-                <dd>{profile?.label ?? "Imported account"}</dd>
+                <dd>{profileLabel(profile)}</dd>
+                <dt>Preferred title</dt>
+                <dd>
+                  {job.preferredTitle
+                    ? `${job.preferredTitle}${job.preferredTitleArchived ? " (archived)" : ""}`
+                    : "No title selected"}
+                </dd>
                 {job.companyId && (
                   <>
                     <dt>Company directory</dt>

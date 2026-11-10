@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { CompanyStore, companyRpcMethods } from './company-store.js';
+import { companyRpcMethods } from './company-store.js';
+import { ProfileStore, profileRpcMethods, profileTitleDto, personName } from './profile-titles.js';
 import { ServiceError, notFound } from '../service/errors.js';
 import { jobWhere } from './job-filters.js';
 import { jobSortFields, listSorting } from './list-sorting.js';
@@ -9,10 +10,12 @@ const now = () => new Date().toISOString();
 const active = "('queued','starting','running','stop_requested')";
 const executing = "('starting','running','stop_requested')";
 export const userDto = row => ({ id: row.id, email: row.email, role: row.role, createdAt: row.created_at });
-export const connectionDto = row => ({ id: row.id, site: row.site, label: row.label, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
+export const connectionDto = (row, titles = []) => ({ id: row.id, site: row.site, label: row.label, personName: row.person_name ?? null, titles, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
 export const runDto = row => ({ id: row.id, connectionId: row.connection_id, site: row.site, kind: row.kind, transport: row.transport, options: JSON.parse(row.options_json), status: row.status, phase: row.phase, queuedAt: row.queued_at, startedAt: row.started_at, endedAt: row.ended_at, heartbeatAt: row.heartbeat_at, counters: JSON.parse(row.counters_json), error: row.error ? { code: row.error_code ?? 'EXECUTION_ERROR', message: row.error } : null, forced: !!row.forced, parentRunId: row.parent_run_id });
 
-export class ServiceStore extends CompanyStore {
+const jobFields = `j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,j.posted_date,j.match_total_score,j.match_skill_score,j.match_industry_score,p.state,p.website_status,j.preferred_title_id,preferred.title AS preferred_title,preferred.is_archived AS preferred_title_archived`;
+const jobJoins = `FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN connections connection ON connection.id=j.connection_id AND connection.user_id=j.user_id LEFT JOIN profile_titles preferred ON preferred.id=j.preferred_title_id AND preferred.user_id=j.user_id AND preferred.connection_id=j.connection_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key`;
+export class ServiceStore extends ProfileStore {
   ping() { return this.db.prepare('SELECT 1 AS ok').get(); }
   createUser({ email, passwordHash, role = 'user', bootstrap = false }) {
     return this.transaction(() => {
@@ -34,13 +37,17 @@ export class ServiceStore extends CompanyStore {
     return row ? userDto(row) : null;
   }
   deleteSession(tokenHash) { this.db.prepare('DELETE FROM backend_sessions WHERE token_hash=?').run(tokenHash); }
-  createConnection({ userId, site, accountKey, label, encryptedCredentials, cliDefault = false }) {
+  createConnection({ userId, site, accountKey, label, encryptedCredentials, cliDefault = false, personName: name }) {
     const id = randomUUID(), date = now();
-    try { this.db.prepare('INSERT INTO connections(id,user_id,site,account_key,label,encrypted_credentials,cli_default,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id, userId, site, accountKey, label, encryptedCredentials, Number(cliDefault), date, date); }
+    try { this.db.prepare('INSERT INTO connections(id,user_id,site,account_key,label,encrypted_credentials,cli_default,created_at,updated_at,person_name) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, userId, site, accountKey, label, encryptedCredentials, Number(cliDefault), date, date, personName(name)); }
     catch (error) { if (/UNIQUE/.test(error.message)) throw new ServiceError(409, 'CONNECTION_EXISTS', 'This account is already connected.'); throw error; }
-    return connectionDto(this.getConnection(userId, id));
+    return this.connectionSummary(this.getConnection(userId, id));
   }
-  listConnections(userId) { return this.db.prepare('SELECT * FROM connections WHERE user_id=? ORDER BY created_at,id').all(userId).map(connectionDto); }
+  connectionSummary(row) { return connectionDto(row, this.profileTitles(row.user_id, row.id)); }
+  listConnections(userId) {
+    const titles = this.db.prepare('SELECT * FROM profile_titles WHERE user_id=? ORDER BY is_archived,normalized_title,id').all(userId);
+    return this.db.prepare('SELECT * FROM connections WHERE user_id=? ORDER BY created_at,id').all(userId).map(row => connectionDto(row, titles.filter(title => title.connection_id === row.id).map(profileTitleDto)));
+  }
   getConnection(userId, id) {
     const row = this.db.prepare('SELECT * FROM connections WHERE id=? AND user_id=?').get(id, userId);
     if (!row) throw notFound(); return row;
@@ -51,7 +58,7 @@ export class ServiceStore extends CompanyStore {
       if (row.account_key !== accountKey) throw new ServiceError(400, 'ACCOUNT_CHANGED', 'Create a new connection to use a different job-site account.');
       if (this.db.prepare(`SELECT id FROM runs WHERE connection_id=? AND status IN ${active}`).get(id)) throw new ServiceError(409, 'CONNECTION_BUSY', 'Stop the connection operation before changing credentials.');
       this.db.prepare("UPDATE connections SET encrypted_credentials=?,label=?,auth_status='not_authenticated',updated_at=? WHERE id=?").run(encryptedCredentials, label, now(), id);
-      return connectionDto(this.getConnection(userId, id));
+      return this.connectionSummary(this.getConnection(userId, id));
     });
   }
   connectionStatus(id, status) { this.db.prepare('UPDATE connections SET auth_status=?,updated_at=? WHERE id=?').run(status, now(), id); }
@@ -157,7 +164,7 @@ export class ServiceStore extends CompanyStore {
     const sorting = listSorting('jobs', jobSortFields, filters);
     const { rows, metadata } = readListPage(this.db, { page, limit, cursor: filters.cursor },
       () => this.db.prepare(`SELECT count(*) AS total FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where}`).get(...params).total,
-      (size, offset) => this.db.prepare(`SELECT j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,j.posted_date,j.match_total_score,j.match_skill_score,j.match_industry_score,p.state,p.website_status,${sorting.expression} AS sort_value${includeDetails ? ',j.details_json' : ''}${includeApplicationUrl ? ",json_extract(j.details_json,'$.applicationUrl') AS application_url" : ''} FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN connections connection ON connection.id=j.connection_id AND connection.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} AND ${sorting.where} ORDER BY ${sorting.order} LIMIT ? OFFSET ?`).all(...params, ...sorting.params, size, offset));
+      (size, offset) => this.db.prepare(`SELECT ${jobFields},${sorting.expression} AS sort_value${includeDetails ? ',j.details_json' : ''}${includeApplicationUrl ? ",json_extract(j.details_json,'$.applicationUrl') AS application_url" : ''} ${jobJoins} WHERE ${where} AND ${sorting.where} ORDER BY ${sorting.order} LIMIT ? OFFSET ?`).all(...params, ...sorting.params, size, offset));
     const items = rows.slice(0, limit).map(row => ({ ...jobDto(row), ...(includeDetails ? { details: JSON.parse(row.details_json) } : {}), ...(includeApplicationUrl ? { applicationUrl: row.application_url } : {}) }));
     return { items, nextCursor: rows.length > limit ? sorting.cursor(rows[limit - 1]) : null, ...metadata };
   }
@@ -167,14 +174,14 @@ export class ServiceStore extends CompanyStore {
     return { assignedCount: Number(result.changes) };
   }
   jobDetail(userId, id, includeRaw = false) {
-    const row = this.db.prepare('SELECT j.*,c.name AS company_name,p.state,p.website_status FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.id=? AND j.user_id=?').get(id, userId);
+    const row = this.db.prepare(`SELECT ${jobFields},j.details_json${includeRaw ? ',j.raw_json' : ''} ${jobJoins} WHERE j.id=? AND j.user_id=?`).get(id, userId);
     if (!row) throw notFound();
     return { ...jobDto(row), details: JSON.parse(row.details_json), ...(includeRaw ? { raw: row.raw_json ? JSON.parse(row.raw_json) : null } : {}) };
   }
   claimLegacy(userId, imports) {
     return this.transaction(() => imports.map(input => {
       const existing = this.db.prepare('SELECT * FROM connections WHERE user_id=? AND site=? AND account_key=?').get(userId, input.site, input.accountKey);
-      const connection = existing ? connectionDto(existing) : this.createConnection({ ...input, userId, cliDefault: true });
+      const connection = existing ? this.connectionSummary(existing) : this.createConnection({ ...input, userId, cliDefault: true });
       if (existing) this.db.prepare('UPDATE connections SET cli_default=1 WHERE id=?').run(existing.id);
       const scope = `legacy:${input.site}:${input.accountKey}`;
       this.db.prepare('UPDATE jobs SET scope_key=?,connection_id=?,user_id=? WHERE scope_key=?').run(connection.id, connection.id, userId, scope);
@@ -182,7 +189,12 @@ export class ServiceStore extends CompanyStore {
       return { ...connection, accountKey: input.accountKey };
     }));
   }
+  jobSummary(userId, id) {
+    const row = this.db.prepare(`SELECT ${jobFields} ${jobJoins} WHERE j.id=? AND j.user_id=?`).get(id, userId);
+    if (!row) throw notFound();
+    return jobDto(row);
+  }
 }
-function jobDto(row) { return { id: row.id, connectionId: row.connection_id, companyId: row.company_id ?? null, companyName: row.company_name ?? null, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null, postedDate:row.posted_date??null, matchingScores:{total:row.match_total_score??null,skill:row.match_skill_score??null,industry:row.match_industry_score??null} }; }
+function jobDto(row) { return { id: row.id, connectionId: row.connection_id, companyId: row.company_id ?? null, companyName: row.company_name ?? null, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null, postedDate:row.posted_date??null, matchingScores:{total:row.match_total_score??null,skill:row.match_skill_score??null,industry:row.match_industry_score??null}, preferredTitleId: row.preferred_title_id ?? null, preferredTitle: row.preferred_title ?? null, preferredTitleArchived: Boolean(row.preferred_title_archived) }; }
 
-export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent',...companyRpcMethods];
+export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent',...companyRpcMethods,...profileRpcMethods];

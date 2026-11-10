@@ -157,7 +157,7 @@ for (const version of [3, 4])
       migrate(store.db, ":memory:");
       assert.equal(
         store.db.prepare("PRAGMA user_version").get().user_version,
-        6,
+        7,
       );
       assert.deepEqual(store.jobDetail(user.id, id, true), before);
       assert.equal(store.getConnection(user.id, profile.id).id, profile.id);
@@ -202,7 +202,7 @@ test("unrecognized version-four and future schemas fail without partially migrat
         .some((column) => column.name === "posted_date"),
       false,
     );
-    store.db.exec("PRAGMA user_version=7");
+    store.db.exec("PRAGMA user_version=8");
     assert.throws(() => migrate(store.db, ":memory:"), /newer/);
   } finally {
     store.close();

@@ -96,14 +96,22 @@ export async function buildService(config, { supervise = true } = {}) {
       return reply.code(201).send(user);
     }, { admin: true });
     route('GET', '/users', { response: s.response(200, { type: 'array', items: s.user }) }, () => db.call('listUsers'), { admin: true });
-    route('POST', '/connections', { body: bodySchema({ site: { type: 'string', enum: config.sites ?? ['jobright'] }, ...s.credentials }, ['site','email','password']), response: s.response(201, s.connection) }, async (request, reply) => {
+    route('POST', '/connections', { body: bodySchema({ site: { type: 'string', enum: config.sites ?? ['jobright'] }, personName: s.personName, ...s.credentials }, ['site','email','password']), response: s.response(201, s.connection) }, async (request, reply) => {
       await loadPlugin(request.body.site, 'browser');
       const key = accountKey(request.body.email);
-      const result = await db.call('createConnection', { userId: request.user.id, site: request.body.site, accountKey: key, label: request.body.email,
+      const result = await db.call('createConnection', { userId: request.user.id, site: request.body.site, accountKey: key, label: request.body.email, personName: request.body.personName,
         encryptedCredentials: encryptCredentials({ email: request.body.email, password: request.body.password }, config.key, `${request.user.id}:${request.body.site}:${key}`) });
       return reply.code(201).send(result);
     });
     route('GET', '/connections', { response: s.response(200, { type: 'array', items: s.connection }) }, request => db.call('listConnections', request.user.id));
+    route('PATCH', '/connections/:id', { params: s.idParams, body: bodySchema({ personName: s.personName }, ['personName']), response: s.response(200, s.connection) }, request => db.call('updateConnectionProfile', request.user.id, request.params.id, request.body));
+    route('POST', '/connections/:id/titles', { params: s.idParams, body: bodySchema({ title: s.titleName }, ['title']), response: s.response(201, s.profileTitle) }, async (request, reply) => {
+      return reply.code(201).send(await db.call('createProfileTitle', request.user.id, request.params.id, request.body));
+    });
+    route('PATCH', '/connections/:id/titles/:titleId', {
+      params: { ...s.idParams, required: ['id','titleId'], properties: { ...s.idParams.properties, titleId: { type: 'string', format: 'uuid' } } },
+      body: { ...bodySchema({ title: s.titleName, isArchived: { enum: [true,false] } }), minProperties: 1 }, response: s.response(200, s.profileTitle),
+    }, request => db.call('updateProfileTitle', request.user.id, request.params.id, request.params.titleId, request.body));
     route('PATCH', '/connections/:id/credentials', { params: s.idParams, body: bodySchema(s.credentials, ['email','password']), response: s.response(200, s.connection) }, async request => {
       const connection = await db.call('getConnection', request.user.id, request.params.id);
       const key = accountKey(request.body.email);
@@ -149,6 +157,7 @@ export async function buildService(config, { supervise = true } = {}) {
         .send(Readable.from(jobCsv(db, request.user.id, request.query, firstPage)));
     });
     route('GET', '/jobs/:id', { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }, querystring: bodySchema({ includeRaw: { type: 'boolean', default: false } }), response: s.response(200, s.detail) }, async request => scrubSecrets(await db.call('jobDetail', request.user.id, request.params.id, request.query.includeRaw)));
+    route('PATCH', '/jobs/:id', { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }, body: bodySchema({ preferredTitleId: s.preferredTitleId }, ['preferredTitleId']), response: s.response(200, s.job) }, request => db.call('setPreferredTitle', request.user.id, request.params.id, request.body.preferredTitleId));
     app.get('/health', { schema: { response: { 200: empty } } }, async () => ({ ok: true }));
     app.get('/ready', { schema: { response: { 200: empty, 503: s.error } } }, async () => {
       let timeout;

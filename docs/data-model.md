@@ -4,7 +4,7 @@ The primary database is `data/jobs.sqlite`, or the database under a configured `
 
 ## Identity and ownership
 
-A backend **user** owns job-site **connections**. The React UI calls a connection a **profile**; there is no separate profile table. A connection identifies one website/account and stores its encrypted credentials and authentication state.
+A backend **user** owns job-site **connections**. The React UI calls a connection a **profile**; there is no separate person/profile table. A connection identifies one website/account and stores its encrypted credentials, authentication state, and optional person name. Each connection can have its own specialization labels in `profile_titles`; a job can reference one as its preferred title.
 
 Job identity is connection-specific because matching information can differ by account. Managed records use the connection ID as `scope_key`, with uniqueness on `(scope_key, source_job_id)`. The source ID is a website string; the SQLite `jobs.id` is a separate integer used by API detail routes.
 
@@ -17,6 +17,7 @@ The CLI resolves an imported account's `cli_default` connection when available. 
 | `users` | UUID `id`; unique case-insensitive email; password hash; role; creation time | Backend identities; roles are `admin` and `user` |
 | `backend_sessions` | Hashed token; owning user; expiry in epoch milliseconds | Revocable backend sessions; plaintext token is not stored |
 | `connections` | UUID `id`; owner; website; account key; label; encrypted credentials; auth status; CLI mapping | Saved job-site accounts |
+| `profile_titles` | UUID `id`; owner/connection; title and normalized key; archive flag; timestamps | Profile-specific specialization labels |
 | `jobs` | Integer `id`; scope/owner/connection; website/source ID; URL/title/company; details/raw JSON; collection times; nullable `assigned_at` | Collected job content and local assignment |
 | `job_processing` | Composite `(job_id, account_key)`; state; website status; error; update time | Local processing and external tracking state |
 | `runs` | UUID `id`; owner/connection; kind/transport/options; lifecycle; counters; phase; execution metadata | Durable queue and execution history |
@@ -57,6 +58,8 @@ Frequently queried values are ordinary columns. Flexible content lives in JSON-e
 Do not invent missing facts, truncate long descriptions, infer salary currency/period, or convert relative posting text into a guessed timestamp. Browser company data can contain `name`, `text`, and `links`; API company data can contain `companyName`, `companyDesc`, and other source fields. Matching data likewise supports browser `charts` and API scores/recommendations.
 
 `saveJob()` validates identity, URL, title, and nonempty description, then transactionally upserts content and inserts processing state if absent. It preserves the first-seen timestamp and existing processing state while updating last-scraped time and content.
+
+Schema version 7 adds `connections.person_name` and nullable `jobs.preferred_title_id`, referencing `profile_titles`. Manual preferences remain separate from source `jobs.title`, assignment, and website tracking. Saving a preferred title checks both ownership and the exact job connection; re-scraping preserves it. Archive/rename/restore retain the same title ID and original job metadata. Existing records start unselected. See [profile specializations](profile-specializations.md).
 
 Schema version 2 adds the nullable `jobs.assigned_at` column to existing version-1 databases. A timestamp means the job is locally Assigned; null means Available. Bulk assignment updates only matching jobs owned by the current user in one statement, preserving existing assignment timestamps. Re-scraping a job preserves its assignment. API summaries and details expose this as `assignedAt`; Tracking displays Assigned when present and otherwise displays the processing state. Assignment never replaces `job_processing.state`, so pending external updates and collection recovery continue to work.
 
@@ -104,8 +107,8 @@ Retry is allowed for stopped, failed, interrupted, and attention-required runs. 
 
 ## Resource pagination
 
-- Jobs use an opaque cursor derived from their integer ID and sort newest IDs first.
-- Companies use the same descending integer-ID cursor pattern.
+- Main job/company screens use numbered pagination with filtered totals and page-size selection. API requests supplying `page` add total/page metadata; count and rows share a short read snapshot. Requests without `page` retain opaque cursors.
+- Jobs/companies default to newest IDs first and support column sorting, including `preferredTitle` for jobs. Sort-aware cursors include the last value/ID and validate column/direction; unknown values stay last. Legacy ID cursors remain valid for default ordering.
 - Runs use an opaque cursor containing queue time and ID, with descending order.
 - Events use an increasing integer `after` cursor and ascending order within a run.
 

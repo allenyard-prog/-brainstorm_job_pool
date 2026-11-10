@@ -17,6 +17,7 @@ import {
   invalidateJobs,
 } from "../data.js";
 import { api, safeLink, dateLabel } from "../api.js";
+import { profileLabel } from "../profiles.js";
 import NumberedPagination from "../NumberedPagination.jsx";
 import {
   Icon,
@@ -578,9 +579,12 @@ export function CompanyDetail() {
                         </Link>
                       </td>
                       <td className="secondary">
-                        {profiles.data?.find(
-                          (profile) => profile.id === job.connectionId,
-                        )?.label ?? job.site}
+                        {profileLabel(
+                          profiles.data?.find(
+                            (profile) => profile.id === job.connectionId,
+                          ),
+                          job.site,
+                        )}
                       </td>
                       <td>
                         <Status

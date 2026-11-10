@@ -1221,3 +1221,93 @@ test('browser UI: numbered jobs/company pagination shows totals, page sizes, jum
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
+test('browser UI: profile specializations, manual job preferences, archival and filtered exports', async () => {
+  const f = await browserFixture();
+  const { page } = f;
+  try {
+    const store = new ServiceStore(f.config.dbPath, { connectionId: f.aliceProfile.id, userId: f.users.alice.id });
+    try {
+      for (let i = 0; i < 24; i++) store.saveJob('jobright', accountKey(f.aliceProfile.label), { id: `specialization-${i}`, title: `Specialization Role ${i}`, company: 'Fixture Company', url: 'https://example.test/job', details: { description: { text: 'Complete description.' }, applicationUrl: 'https://employer.test/apply' } });
+    } finally { store.close(); }
+    await f.login();
+    await page.getByRole('link', { name: 'Profiles', exact: true }).click();
+    await page.getByRole('button', { name: `Manage specializations for ${f.aliceProfile.label}`, exact: true }).click();
+    let dialog = page.getByRole('dialog', { name: 'Manage specializations' });
+    await dialog.getByLabel('Person name', { exact: true }).fill('Daniel Zhang');
+    await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+    await page.getByRole('heading', { name: 'Daniel Zhang', exact: true }).waitFor();
+    for (const title of ['DevOps Engineer','SRE','Platform Engineer','DevSecOps Engineer']) {
+      await dialog.getByLabel('New specialization', { exact: true }).fill(title);
+      await dialog.getByRole('button', { name: 'Add specialization', exact: true }).click();
+      await dialog.getByRole('button', { name: `Archive ${title}`, exact: true }).waitFor();
+    }
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.goto(`${f.address}/jobs?q=Senior`);
+    let preferred = page.getByRole('combobox', { name: 'Preferred title for Senior Data Engineer', exact: true });
+    await preferred.selectOption({ label: 'SRE' });
+    await page.waitForFunction(() => document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]')?.selectedOptions[0]?.textContent === 'SRE' && !document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]').disabled);
+    const saved = await (await page.request.get(`${f.address}/api/v1/jobs/${f.jobId}`)).json();
+    assert.equal(saved.title, 'Senior Data Engineer');
+    assert.equal(saved.preferredTitle, 'SRE');
+    assert.equal(saved.assignedAt, null);
+    assert.equal(saved.processingState, 'mark_confirmed');
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]')?.selectedOptions[0]?.textContent === 'SRE');
+    const filterButton = page.getByRole('button', { name: /^Filters/ });
+    await filterButton.click();
+    await page.getByRole('combobox', { name: 'Preferred title', exact: true }).selectOption('unselected');
+    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+    await page.getByText('Showing 0–0 of 0 jobs', { exact: true }).waitFor();
+    await page.goto(`${f.address}/jobs?preferredTitleId=unselected`);
+    await page.getByText('Showing 1–20 of 24 jobs', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Page 2', exact: true }).click();
+    await page.getByText('Showing 21–24 of 24 jobs', { exact: true }).waitFor();
+    const titleId = saved.preferredTitleId;
+    await page.goto(`${f.address}/jobs?preferredTitleId=${titleId}&sortBy=preferredTitle&sortOrder=asc`);
+    await page.getByText('Showing 1–1 of 1 jobs', { exact: true }).waitFor();
+    const downloadReady = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download CSV', exact: true }).click();
+    const download = await downloadReady;
+    const csv = await readFile(await download.path(), 'utf8');
+    assert.ok(csv.includes('preferredTitleId,preferredTitle,preferredTitleArchived'));
+    assert.ok(csv.includes('"SRE","false"'));
+    assert.ok(csv.includes('"Senior Data Engineer"'));
+    assert.equal(csv.trim().split('\r\n').length, 2);
+
+    await page.getByRole('link', { name: 'Profiles', exact: true }).click();
+    await page.getByRole('button', { name: 'Manage specializations for Daniel Zhang', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Manage specializations' });
+    await dialog.getByRole('button', { name: 'Archive SRE', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Restore SRE', exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.goto(`${f.address}/jobs?preferredTitleId=${titleId}`);
+    await page.getByText('Showing 1–1 of 1 jobs', { exact: true }).waitFor();
+    preferred = page.getByRole('combobox', { name: 'Preferred title for Senior Data Engineer', exact: true });
+    assert.equal(await preferred.getByRole('option', { name: 'SRE (archived)', exact: true }).isDisabled(), true);
+    await preferred.selectOption({ label: 'DevOps Engineer' });
+    await page.getByText('Showing 0–0 of 0 jobs', { exact: true }).waitFor();
+    await page.goto(`${f.address}/jobs?q=Senior`);
+    preferred = page.getByRole('combobox', { name: 'Preferred title for Senior Data Engineer', exact: true });
+    await preferred.selectOption('');
+    await page.waitForFunction(() => document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]')?.value === '' && !document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]').disabled);
+    await preferred.selectOption({ label: 'Platform Engineer' });
+    await page.waitForFunction(() => document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]')?.selectedOptions[0]?.textContent === 'Platform Engineer' && !document.querySelector('select[aria-label="Preferred title for Senior Data Engineer"]').disabled);
+    await page.getByRole('link', { name: 'Profiles', exact: true }).click();
+    await page.getByRole('button', { name: 'Manage specializations for Daniel Zhang', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Manage specializations' });
+    await dialog.getByRole('button', { name: 'Rename Platform Engineer', exact: true }).click();
+    await dialog.getByRole('textbox', { name: 'Rename Platform Engineer', exact: true }).fill('Platform Engineering');
+    await dialog.getByRole('button', { name: 'Save title', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Archive Platform Engineering', exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Restore SRE', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Archive SRE', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mkdir(resolve('artifacts/frontend'), { recursive: true });
+    await page.screenshot({ path: resolve('artifacts/frontend/profile-specializations-mobile.png'), fullPage: true, animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.goto(`${f.address}/jobs/${f.jobId}`);
+    await page.locator('dt').filter({ hasText: /^Preferred title$/ }).waitFor();
+    assert.equal(await page.locator('dt').filter({ hasText: /^Preferred title$/ }).locator('..').innerText().then(text => text.includes('Platform Engineering')), true);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});

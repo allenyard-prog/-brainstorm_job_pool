@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { useAction, useResource } from "../data.js";
+import ProfileSpecializations from "../ProfileSpecializations.jsx";
 import {
   Icon,
   PageHead,
@@ -31,6 +32,9 @@ function ProfileForm({ profile, onClose }) {
         method: profile ? "PATCH" : "POST",
         body: {
           ...(profile ? {} : { site }),
+          ...(!profile && String(data.get("personName") ?? "").trim()
+            ? { personName: String(data.get("personName")).trim() }
+            : {}),
           email: String(data.get("email")),
           password: String(data.get("password")),
         },
@@ -76,6 +80,17 @@ function ProfileForm({ profile, onClose }) {
             placeholder="Your job-site email"
           />
         </label>
+        {!profile && (
+          <label>
+            Person name (optional)
+            <input
+              name="personName"
+              maxLength="200"
+              autoComplete="off"
+              placeholder="For example, Daniel Zhang"
+            />
+          </label>
+        )}
         {profile && (
           <small className="muted">
             To use a different email, add a new profile.
@@ -166,6 +181,8 @@ export default function Profiles() {
   const { profiles, live, openCollection } = useOutletContext();
   const [editing, setEditing] = useState(null),
     [authentication, setAuthentication] = useState(null);
+  const [managingId, setManagingId] = useState(null);
+  const managed = profiles.data?.find((profile) => profile.id === managingId);
   return (
     <>
       <PageHead
@@ -209,7 +226,24 @@ export default function Profiles() {
                   </button>
                 </div>
                 <span className="eyebrow">{profile.site.toUpperCase()}</span>
-                <h2>{profile.label}</h2>
+                <h2>{profile.personName || profile.label}</h2>
+                {profile.personName && (
+                  <p className="profile-account-email">{profile.label}</p>
+                )}
+                <div className="profile-title-chips">
+                  {(profile.titles ?? [])
+                    .filter((title) => !title.isArchived)
+                    .map((title) => (
+                      <span key={title.id}>{title.title}</span>
+                    ))}
+                </div>
+                <button
+                  className="button subtle small manage-specializations"
+                  aria-label={`Manage specializations for ${profile.personName || profile.label}`}
+                  onClick={() => setManagingId(profile.id)}
+                >
+                  Manage specializations
+                </button>
                 <Status value={profile.authStatus} />
                 {busy ? (
                   <div className="profile-busy">
@@ -292,6 +326,12 @@ export default function Profiles() {
         <Authenticate
           profile={authentication}
           onClose={() => setAuthentication(null)}
+        />
+      )}
+      {managed && (
+        <ProfileSpecializations
+          profile={managed}
+          onClose={() => setManagingId(null)}
         />
       )}
     </>
