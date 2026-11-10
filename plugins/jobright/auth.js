@@ -1,39 +1,98 @@
-import { AuthenticationError } from '../../src/core/errors.js';
+import { AuthenticationError, SystemicError } from "../../src/core/errors.js";
+import {
+  navigateJobright,
+  waitForJobright,
+  withPageCancellation,
+} from "./navigation.js";
 
-export const origin = context => context.config.baseUrl ?? 'https://jobright.ai';
+export const origin = (context) =>
+  context.config.baseUrl ?? "https://jobright.ai";
+
+// Server-rendered SIGN IN can be visible before React attaches its handler.
+// Only activate this dialog trigger again; never retry credential submission.
+export async function openSignInDialog(context) {
+  const timeout = Math.max(1, Number(context.config?.timeout ?? 30000));
+  const deadline = Math.min(context.deadline ?? Infinity, Date.now() + timeout);
+  const maxAttempts = Math.max(1, Math.min(30, Math.ceil(timeout / 2000)));
+  const window = Math.ceil(timeout / maxAttempts);
+  for (
+    let attempt = 0;
+    attempt < maxAttempts && Date.now() < deadline;
+    attempt++
+  ) {
+    context.signal?.throwIfAborted();
+    // A partial dialog can still be loading its fields. Do not click through
+    // it or toggle it closed while waiting for those controls.
+    const modalVisible =
+      (await context.page.locator(".ant-modal:visible").count()) > 0;
+    if (!modalVisible) {
+      try {
+        await withPageCancellation(context, () =>
+          context.page
+            .getByRole("button", { name: /^sign in$/i })
+            .first()
+            .click({
+              noWaitAfter: true,
+              timeout: Math.max(1, Math.min(2000, deadline - Date.now())),
+            }),
+        );
+      } catch (error) {
+        context.signal?.throwIfAborted();
+        if (error.name !== "TimeoutError") throw error;
+      }
+    }
+    try {
+      return await waitForJobright(
+        { ...context, deadline: Math.min(deadline, Date.now() + window) },
+        "credentials",
+      );
+    } catch (error) {
+      context.signal?.throwIfAborted();
+      if (error.code !== "JOBRIGHT_CONTROLS_TIMEOUT") throw error;
+    }
+  }
+  context.signal?.throwIfAborted();
+  throw new SystemicError(
+    "Jobright’s SIGN IN dialog did not become interactive before the timeout. No credentials were submitted. Retry when the page finishes loading, or authenticate with a visible browser.",
+  );
+}
+
 export async function authenticate(context) {
   const { page, credentials, recorder, signal } = context;
   signal?.throwIfAborted();
-  recorder?.action('authentication');
-  await page.goto(context.hasSession ? `${origin(context)}/jobs/recommend` : origin(context), { waitUntil: 'domcontentloaded' });
-  const signIn = page.getByRole('button', { name: /^sign in$/i }).first();
-  await page.waitForTimeout(1000);
-  if (await signIn.isVisible()) {
-    try { await signIn.click({ timeout: 5000 }); }
-    catch (error) { if (!new URL(page.url()).pathname.startsWith('/jobs/')) throw error; }
-    const modal = page.locator('.ant-modal:visible').last();
-    if (await modal.getByPlaceholder('Email', { exact: true }).isVisible()) {
-      await modal.getByPlaceholder('Email', { exact: true }).fill(credentials.email);
-      await modal.getByPlaceholder('Password', { exact: true }).fill(credentials.password);
-      await modal.getByRole('button', { name: /^sign in$/i }).click();
-      try {
-        await Promise.race([
-          page.waitForURL(/\/jobs\//, { timeout: 30000 }),
-          page.locator('.ant-message-error,.ant-form-item-explain-error').first().waitFor({ timeout: 30000 }).then(() => { throw new AuthenticationError('Jobright rejected the sign-in information.'); }),
-        ]);
-      }
-      catch {
-        throw new AuthenticationError('Login did not reach the jobs area. Check credentials or complete interactive verification using the headed login command.');
-      }
-    }
+  recorder?.action("authentication");
+  let state = await navigateJobright(
+    context,
+    context.hasSession ? `${origin(context)}/jobs/recommend` : origin(context),
+    { kind: "entry" },
+  );
+  if (state === "sign_in") {
+    state = await openSignInDialog(context);
   }
-  if (!page.url().includes('/jobs/recommend')) await page.goto(`${origin(context)}/jobs/recommend`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
-  if (await page.getByPlaceholder('Password', { exact: true }).isVisible() || await page.getByRole('button', { name: /^sign in$/i }).first().isVisible()) {
-    throw new AuthenticationError('The authenticated session is unavailable or expired. Run the login command.');
+  if (state === "credentials") {
+    if (!credentials?.email || !credentials?.password)
+      throw new AuthenticationError(
+        "This Jobright session needs sign-in. Authenticate the profile before collecting jobs.",
+      );
+    const modal = page.locator(".ant-modal:visible").last();
+    await withPageCancellation(context, async () => {
+      await modal
+        .getByPlaceholder("Email", { exact: true })
+        .fill(credentials.email);
+      await modal
+        .getByPlaceholder("Password", { exact: true })
+        .fill(credentials.password);
+      // Submit credentials once. Only page reads are eligible for retries.
+      await modal
+        .getByRole("button", { name: /^sign in$/i })
+        .click({ noWaitAfter: true });
+    });
+    await waitForJobright(context, "login");
   }
-  try { await page.locator('a[href="/jobs/profile"]').first().waitFor({ timeout: 15000 }); }
-  catch { throw new AuthenticationError('Authenticated account navigation was not found. Run the headed login command.'); }
+  if (!new URL(page.url()).pathname.startsWith("/jobs/recommend"))
+    await navigateJobright(context, `${origin(context)}/jobs/recommend`);
+  else await waitForJobright(context);
+  signal?.throwIfAborted();
   await context.saveSession();
-  context.log?.('authenticated');
+  context.log?.("authenticated");
 }

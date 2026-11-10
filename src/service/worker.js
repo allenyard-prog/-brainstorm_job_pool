@@ -69,9 +69,10 @@ async function execute(payload) {
     }
   } catch (error) {
     const attention = error instanceof AuthenticationError || error instanceof UncertainWriteError;
+    const stopped=controller.signal.aborted&&!attention;
     if (error instanceof AuthenticationError) store.connectionStatus(run.connection_id, 'attention_required');
-    store.endRun(run.id, controller.signal.aborted && !attention ? 'stopped' : attention ? 'attention_required' : 'failed', safe(error.message), error.constructor.name);
-    store.addEvent(run.id, 'worker_error', { message: safe(error.message) });
+    store.endRun(run.id, stopped ? 'stopped' : attention ? 'attention_required' : 'failed', stopped?null:safe(error.message),stopped?null:error.constructor.name);
+    if(!stopped)store.addEvent(run.id, 'worker_error', { message: safe(error.message) });
   } finally {
     clearInterval(heartbeat); clearTimeout(orphanTimer);
     try { await browser?.close(); }

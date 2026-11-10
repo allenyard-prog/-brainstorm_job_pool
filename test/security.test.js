@@ -16,3 +16,7 @@ test('plain-text HTTP errors redact cookies, authorization headers and query tok
   for (const secret of ['private-cookie','private-auth','private-token']) assert.ok(!message.includes(secret));
   assert.ok(message.includes('job=123'));
 });
+
+test('Playwright errors are stored without terminal escape sequences',()=>{
+  assert.equal(sanitize('Call log: \u001b[2mwaiting for document\u001b[22m'),'Call log: waiting for document');
+});

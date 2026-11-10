@@ -23,12 +23,18 @@ export async function startFixtureServer({ ids = ['a', 'b', 'c'] } = {}) {
   let authenticated = true;
   let loseWriteResponse = false;
   let brokenSchema = false;
+  let stalledAssets=false,heldRecommendations=false,navigationFailures=0,navigationStatus=503;
+  let signInDelayMs=0;
+  const html=body=>document(body).replace('</head>',`${stalledAssets?'<script defer src="/fixture-pending-script.js"></script>':''}</head>`);
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture');
     let body = '';
     for await (const chunk of req) body += chunk;
     requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body: body ? JSON.parse(body) : null });
     const json = result => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ success: true, errorCode: 10000, result })); };
+    if(url.pathname==='/fixture-pending-script.js'){res.writeHead(200,{'Content-Type':'application/javascript'});res.flushHeaders();return;}
+    if(url.pathname==='/jobs/recommend'&&heldRecommendations)return;
+    if(url.pathname==='/jobs/recommend'&&navigationFailures>0){navigationFailures--;res.writeHead(navigationStatus);res.end('Temporary fixture response');return;}
     if (url.pathname.startsWith('/swan/') && (!authenticated || !req.headers.cookie?.includes('fixture-session=valid'))) {
       res.statusCode = 401; res.end('Unauthenticated'); return;
     }
@@ -60,18 +66,18 @@ export async function startFixtureServer({ ids = ['a', 'b', 'c'] } = {}) {
     }
     if (url.pathname === '/') {
       if (req.headers.cookie?.includes('fixture-session=valid')) { res.writeHead(302, { Location: '/jobs/recommend' }); res.end(); return; }
-      res.end(document(`<button onclick="document.querySelector('.ant-modal').hidden=false">SIGN IN</button>
+      res.end(html(`<button id="fixture-signin">SIGN IN</button>
         <div role="dialog" class="ant-modal" hidden><input placeholder="Email"><input type="password" placeholder="Password"><button id="submit">SIGN IN</button></div>
-        <script>document.querySelector('#submit').onclick=async()=>{const r=await fetch('/fixture-login',{method:'POST',body:JSON.stringify({email:document.querySelector('[placeholder=Email]').value,password:document.querySelector('[placeholder=Password]').value})});if(r.ok)location.href='/jobs/recommend';else document.body.insertAdjacentHTML('beforeend','<div class="ant-message-error">Sign in failed</div>');};</script>`)); return;
+        <script>window.fixtureDialogActivations=0;document.querySelector('#fixture-signin').addEventListener('click',()=>window.fixtureDialogActivations++);if(${signInDelayMs}>=0)setTimeout(()=>{document.querySelector('#fixture-signin').onclick=()=>{document.querySelector('.ant-modal').hidden=false;};},${Math.max(0,signInDelayMs)});document.querySelector('#submit').onclick=async()=>{const r=await fetch('/fixture-login',{method:'POST',body:JSON.stringify({email:document.querySelector('[placeholder=Email]').value,password:document.querySelector('[placeholder=Password]').value})});if(r.ok)location.href='/jobs/recommend';else document.body.insertAdjacentHTML('beforeend','<div class="ant-message-error">Sign in failed</div>');};</script>`)); return;
     }
     if (url.pathname === '/jobs/recommend' || url.pathname === '/jobs/applied') {
       if (!req.headers.cookie?.includes('fixture-session=valid')) { res.writeHead(302, { Location: '/' }); res.end(); return; }
       const visible = url.pathname.endsWith('applied') ? [...applied] : ids.filter(id => !applied.has(id));
-      res.end(document(`<a href="/jobs/profile">Account</a><main>${visible.map(id => `<div class="job-card-flag-classname" id="${id}"><a href="/jobs/info/${id}"><h2>Engineer ${id}</h2></a><button class="ant-dropdown-trigger" onclick="document.querySelector('#menu-${id}').hidden=false">Options</button><div id="menu-${id}" role="menu" hidden><button role="menuitem" onclick="mark('${id}')">Already Applied</button></div></div>`).join('')}</main><script>fetch('/swan/recommend/list/jobs?refresh=true&sortCondition=0&position=0&count=20&syncRerank=false');async function mark(id){const r=await fetch('/swan/job/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:id,source:0})});if(r.ok)document.getElementById(id).remove();}</script>`)); return;
+      res.end(html(`<a href="/jobs/profile">Account</a><main>${visible.map(id => `<div class="job-card-flag-classname" id="${id}"><a href="/jobs/info/${id}"><h2>Engineer ${id}</h2></a><button class="ant-dropdown-trigger" onclick="document.querySelector('#menu-${id}').hidden=false">Options</button><div id="menu-${id}" role="menu" hidden><button role="menuitem" onclick="mark('${id}')">Already Applied</button></div></div>`).join('')}</main><script>fetch('/swan/recommend/list/jobs?refresh=true&sortCondition=0&position=0&count=20&syncRerank=false');async function mark(id){const r=await fetch('/swan/job/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:id,source:0})});if(r.ok)document.getElementById(id).remove();}</script>`)); return;
     }
     if (url.pathname.startsWith('/jobs/info/')) {
       const id = url.pathname.split('/').at(-1);
-      res.end(document(`<a href="/jobs/profile">Account</a><div class="index_jobDetailContent_fixture">
+      res.end(html(`<a href="/jobs/profile">Account</a><div class="index_jobDetailContent_fixture">
         <button id="index_job-detail-close-button__ZGvhR" onclick="location.href='/jobs/recommend'">Close</button>
         <div class="index_company-name_fixture">Fixture Corp</div><h1>Engineer ${id}</h1>
         <div class="index_job-metadata-item_fixture" data-time-filter-job="${id}"><svg aria-label="position"></svg><span class="index_job-location-display_fixture"><span class="index_primary-location_fixture">New York, NY</span>${id === 'multi' ? '<span class="index_more-tag_fixture" onmouseover="document.querySelector(\'.ant-tooltip-inner\').hidden=false">+1 more</span>' : ''}</span></div>
@@ -90,5 +96,7 @@ export async function startFixtureServer({ ids = ['a', 'b', 'c'] } = {}) {
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   return { baseUrl: `http://127.0.0.1:${server.address().port}`, requests, applied, expire: () => { authenticated = false; }, loseNextWriteResponse: () => { loseWriteResponse = true; }, breakSchema: value => { brokenSchema = value; },
+    stallAssets:(value=true)=>{stalledAssets=value;},holdRecommendations:(value=true)=>{heldRecommendations=value;},failNavigations:(count,status=503)=>{navigationFailures=count;navigationStatus=status;},
+    delaySignIn:milliseconds=>{signInDelayMs=milliseconds;},
     close: () => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }) };
 }

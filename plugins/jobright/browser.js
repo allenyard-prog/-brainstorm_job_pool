@@ -1,6 +1,7 @@
 import { authenticate, origin } from './auth.js';
 import { emptyDetails } from './normalize.js';
 import { AuthenticationError, UnsupportedError, UncertainWriteError } from '../../src/core/errors.js';
+import { navigateJobright,waitForJobright,withPageCancellation } from './navigation.js';
 
 const state = context => context.jobright ??= { writeEvidence: new Map() };
 const cardSelector = '.job-card-flag-classname';
@@ -16,11 +17,11 @@ export async function returnToList(context) {
   await dismissTour(page);
   const close = page.locator('[id*="job-detail-close-button"],[class*="job-detail-close-button"]').first();
   if (await close.isVisible()) {
-    await close.click();
-    await page.waitForURL(/\/jobs\/recommend/);
+    await withPageCancellation(context,async()=>{await close.click({noWaitAfter:true});await page.waitForURL(/\/jobs\/recommend/,{waitUntil:'commit'});});
+    await waitForJobright(context);
   }
   if (!new URL(page.url()).pathname.startsWith('/jobs/recommend')) {
-    await page.goto(`${origin(context)}/jobs/recommend`, { waitUntil: 'domcontentloaded' });
+    await navigateJobright(context,`${origin(context)}/jobs/recommend`);
   }
 }
 
@@ -85,7 +86,7 @@ export default {
     context.signal?.throwIfAborted();
     context.recorder?.action('list');
     await returnToList(context);
-    if (state(context).empty) await context.page.reload({ waitUntil: 'domcontentloaded' });
+    if (state(context).empty) await navigateJobright(context,`${origin(context)}/jobs/recommend`);
     if (await context.page.getByPlaceholder('Password', { exact: true }).isVisible()) throw new AuthenticationError('Jobright session expired.');
     // Do not reload while the initial recommendation request is still in flight.
     if (await context.page.locator(cardSelector).count() === 0) {
@@ -121,8 +122,9 @@ export default {
     context.recorder?.action('detail', job.id);
     await returnToList(context);
     const card = context.page.locator(`[id="${job.id}"]`);
-    if (await card.count()) await card.locator('a[href^="/jobs/info/"] h2').first().click();
-    else await context.page.goto(job.url, { waitUntil: 'domcontentloaded' });
+    if (await card.count()) await withPageCancellation(context,()=>card.locator('a[href^="/jobs/info/"] h2').first().click({noWaitAfter:true}));
+    else await navigateJobright(context,job.url,{kind:'detail'});
+    await waitForJobright(context,'detail');
     await dismissTour(context.page);
     await context.page.locator(`${detailSelector} h1`).waitFor();
     // Expand content only; never click skill tags, applications, or credit-consuming tools.
@@ -179,7 +181,7 @@ export default {
         return 'applied';
       } catch { /* Reconcile through the Applied page. */ }
     }
-    await context.page.goto(`${origin(context)}/jobs/applied`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await navigateJobright(context,`${origin(context)}/jobs/applied`,{timeout:15000});
     await context.page.waitForTimeout(1500);
     if (await context.page.locator(`[id="${job.id}"]`).count() || await context.page.locator(`a[href="/jobs/info/${job.id}"]`).count()) return 'applied';
     return 'unknown';

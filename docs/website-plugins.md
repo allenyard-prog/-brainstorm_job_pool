@@ -93,6 +93,20 @@ An API detail operation does not require a separate detail endpoint. Jobright cu
 
 Preserve the user's source filters. Re-query changing lists after tracking updates because cards can disappear. Honor exclusions without repeatedly returning an already handled first page. Leave job intervals, empty-list polling, and extraction retry policy to the shared runner.
 
+## Jobright navigation and authentication
+
+Jobright can show a valid authenticated account while a deferred/background asset prevents `DOMContentLoaded` from firing. The shared browser/API login waits for the main document to commit, then checks visible Jobright controls. Detail/list/Applied navigation uses the same readiness helper. HTTP success alone is not accepted as proof of authentication.
+
+Main-document reads allow at most three attempts for transient network failures and 5xx responses, bounded by `NAVIGATION_TIMEOUT_MS` and any verification deadline. Commits wait at most 15 seconds per attempt; readiness uses the remaining overall budget. Authentication failures, verification challenges, rate limits, and unsupported pages receive explicit errors. Credential submissions and tracking updates are never automatically retried.
+
+On fresh sign-in, the server-rendered **SIGN IN** button may appear before React attaches its click handler. Login retries only opening that dialog within the configured timeout, checks for usable email/password controls after each activation, and waits without reactivating the trigger once a dialog is visible. Credentials are submitted once after the dialog is ready. A dialog that never becomes interactive produces a specific error stating that no credentials were submitted. Both transports share this behavior; cancellation interrupts the wait.
+
+Stop interrupts a held navigation by closing that page, keeping its authenticated HTTP context available for reconciliation. Uncertain tracking updates retain the existing pending-state policy. New scraper processes load plugin code on startup, so use **Retry run** for a failed collection after this repair. Terminal escape sequences are stripped from newly recorded errors.
+
+Fixtures cover stalled deferred scripts, HTTP-success pages without account controls, transient document failures, rejected credentials, and managed-worker cancellation. Live read-only verification on November 10, 2026 confirmed both transports reused the affected saved session in under three seconds while `DOMContentLoaded` remained pending. An API read returned 20 recommendations with no tracking changes. Live browser-mode listing found no job cards, so browser extraction parity remains fixture-verified only. No new website endpoints were introduced.
+
+Fresh sign-in fixtures also cover delayed hydration for both transports, a partially rendered dialog, bounded failure, single credential submission on rejection, and cancellation. A separate live fresh-browser check on November 10, 2026 opened the empty sign-in dialog after two trigger activations in approximately six seconds. It submitted no credentials and made no tracking updates; successful account authentication remains fixture-verified for this specific repair.
+
 ## Adding another website
 
 ```powershell

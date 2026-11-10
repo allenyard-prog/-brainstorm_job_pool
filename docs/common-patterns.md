@@ -72,6 +72,14 @@ Pass `context.signal` to abortable work and check it before scheduling another o
 
 Persist the stop request before sending IPC. Correctness must survive a missed IPC message, worker exit, or supervisor restart. Do not use an in-memory flag as the only stop or progress record.
 
+## Verify filesystem lock ownership
+
+Use the shared lock helper for service/account exclusivity. New lock records include a random ownership token, PID, and an OS process-start fingerprint. A numeric PID can be reused after a runner exits, so an existence check alone does not establish ownership. Windows uses a bounded, hidden local CIM query; Linux uses boot ID and process start ticks, with process-start metadata on other supported hosts. Signal-zero checks never terminate processes.
+
+Reclaim only confirmed exited owners or mismatching process identities. For legacy PID-only files, a process born after the lock file was written proves PID reuse; a timestamp margin avoids ambiguous cases. Permission errors or unavailable identity information preserve the lock and produce an actionable ownership error rather than exposing `kill EPERM` or assuming the process is dead.
+
+A short-lived `.reclaim` guard serializes stale removals, and the file is rechecked before replacement. Releases verify their token and are idempotent. An abandoned recovery guard is preserved for inspection rather than removed unsafely. Tests must cover active owners, reused PIDs, legacy timestamps, inaccessible owners, concurrent recovery, and old releases not deleting replacement locks.
+
 ## Share orchestration and isolate website behavior
 
 The runner owns persistence and processing states. Plugins own selectors, authentication flows, endpoint payloads, pagination, and normalization. Both transports return the same job envelope; account-specific extras remain in JSON.
