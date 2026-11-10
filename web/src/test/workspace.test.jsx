@@ -140,6 +140,7 @@ it("searches and filters job lists through API query parameters", async () => {
     "Data engineer",
   );
   await user.click(screen.getByRole("button", { name: "Search", exact: true }));
+  await user.click(screen.getByRole("button", { name: /^Filters/ }));
   await user.selectOptions(
     screen.getByRole("combobox", { name: "Profile", exact: true }),
     profile.id,
@@ -148,6 +149,7 @@ it("searches and filters job lists through API query parameters", async () => {
     screen.getByRole("combobox", { name: "Tracking status" }),
     "saved",
   );
+  await user.click(screen.getByRole("button", { name: "Apply filters" }));
   await waitFor(() =>
     expect(
       backend.fetch.mock.calls.some(([path]) => {
@@ -163,59 +165,30 @@ it("searches and filters job lists through API query parameters", async () => {
   );
 });
 
-it("applies local collected times, resets pagination, rejects reversed ranges, and clears only time filters", async () => {
+it("preserves legacy collected filters and clears their chip without changing search or profile", async () => {
   const backend = mockBackend();
   renderApp(
-    `/jobs?connectionId=${profile.id}&q=Engineer&status=saved&cursor=page-two&stack=%5B%22%22%5D`,
+    `/jobs?connectionId=${profile.id}&q=Engineer&collectedFrom=2026-11-08T12%3A00%3A00Z&cursor=page-two`,
   );
   const user = userEvent.setup();
-  await screen.findByText("Alice’s private job");
-  fireEvent.change(screen.getByLabelText("Collected from"), {
-    target: { value: "2026-11-08T08:30" },
-  });
-  fireEvent.change(screen.getByLabelText("Collected to"), {
-    target: { value: "2026-11-08T09:45" },
-  });
-  await user.click(screen.getByRole("button", { name: "Apply time filter" }));
-  const expectedFrom = new Date("2026-11-08T08:30").toISOString();
-  const expectedTo = new Date("2026-11-08T09:45").toISOString();
+  await screen.findByText(/Alice.s private job/);
+  await user.click(
+    screen.getByRole("button", { name: "Remove Last refreshed filter" }),
+  );
   await waitFor(() =>
     expect(
       backend.fetch.mock.calls.some(([path]) => {
-        const url = new URL(path, "http://example.test");
+        const url = new URL(path, "http://fixture.test");
         return (
           url.pathname.endsWith("/jobs") &&
-          url.searchParams.get("collectedFrom") === expectedFrom &&
-          url.searchParams.get("collectedTo") === expectedTo &&
+          !url.searchParams.has("collectedFrom") &&
           !url.searchParams.has("cursor") &&
           url.searchParams.get("connectionId") === profile.id &&
-          url.searchParams.get("q") === "Engineer" &&
-          url.searchParams.get("status") === "saved"
+          url.searchParams.get("q") === "Engineer"
         );
       }),
     ).toBe(true),
   );
-  expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-  fireEvent.change(screen.getByLabelText("Collected from"), {
-    target: { value: "2026-11-09T08:30" },
-  });
-  await user.click(screen.getByRole("button", { name: "Apply time filter" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Collected from must be before or equal to collected to.",
-  );
-  expect(
-    backend.fetch.mock.calls.some(([path]) =>
-      path.includes(
-        encodeURIComponent(new Date("2026-11-09T08:30").toISOString()),
-      ),
-    ),
-  ).toBe(false);
-  await user.click(screen.getByRole("button", { name: "Clear time filter" }));
-  expect(screen.getByLabelText("Collected from")).toHaveValue("");
-  expect(screen.getByLabelText("Collected to")).toHaveValue("");
-  expect(
-    screen.getByRole("combobox", { name: "Profile", exact: true }),
-  ).toHaveValue(profile.id);
   expect(screen.getByRole("searchbox", { name: "Search jobs" })).toHaveValue(
     "Engineer",
   );
@@ -294,6 +267,7 @@ it("assigns all filtered jobs without pagination and refreshes their Tracking st
   expect(
     screen.getByRole("button", { name: "Previous", exact: true }),
   ).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: /^Filters/ }));
   expect(
     screen.getByRole("option", { name: "Assigned", exact: true }),
   ).toBeInTheDocument();

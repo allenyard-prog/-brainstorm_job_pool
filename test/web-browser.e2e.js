@@ -315,14 +315,26 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
           details: {
             description: { text: "Export data." },
             applicationUrl: `https://employer.test/apply/${index}`,
+            postedAt:
+              index === 22 ? "2026-11-05 12:00:00" : "2026-11-06 23:30:00",
+            matching: {
+              score: 84.4677,
+              recommendations: [
+                { featureName: "q_job_skill_match", score: 0.8 },
+                { featureName: "q_industry_match", score: 0.7 },
+              ],
+            },
           },
         });
         store.db
-          .prepare("UPDATE jobs SET last_scraped_at=? WHERE id=?")
+          .prepare(
+            "UPDATE jobs SET first_seen_at=?,last_scraped_at=? WHERE id=?",
+          )
           .run(
             index === 22
               ? "2026-11-07T12:00:00.000Z"
               : "2026-11-08T12:00:00.000Z",
+            "2026-12-01T00:00:00.000Z",
             id,
           );
       }
@@ -338,13 +350,66 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
       .getByRole("searchbox", { name: "Search jobs" })
       .fill("Export Engineer");
     await page.getByRole("button", { name: "Search", exact: true }).click();
-    await page.getByLabel("Collected from").fill("2026-11-08T07:00");
-    await page.getByLabel("Collected to").fill("2026-11-08T08:00");
-    await page.getByRole("button", { name: "Apply time filter" }).click();
+    const filterButton = page.getByRole("button", { name: /^Filters/ });
+    const beforeFilters = page.url();
+    await filterButton.click();
+    await page
+      .getByLabel("Company name", { exact: true })
+      .fill("Unapplied draft");
+    assert.equal(page.url(), beforeFilters);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    assert.equal(
+      await filterButton.evaluate(
+        (element) => element === document.activeElement,
+      ),
+      true,
+    );
+    await filterButton.click();
+    assert.equal(
+      await page.getByLabel("Company name", { exact: true }).inputValue(),
+      "",
+    );
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Apply filters" })
+        .evaluate((element) => element === document.activeElement),
+      true,
+    );
+    await page
+      .getByLabel("Company name", { exact: true })
+      .fill("export company");
+    await page.getByLabel("Posted from", { exact: true }).fill("2026-11-06");
+    await page.getByLabel("Posted to", { exact: true }).fill("2026-11-06");
+    await page
+      .getByLabel("Registered from", { exact: true })
+      .fill("2026-11-08");
+    await page.getByLabel("Registered to", { exact: true }).fill("2026-11-08");
+    await page.getByLabel("Total match minimum").fill("84");
+    await page.getByLabel("Total match maximum").fill("85");
+    await page.getByLabel("Skill match minimum").fill("80");
+    await page.getByLabel("Skill match maximum").fill("80");
+    await page.getByLabel("Industry match minimum").fill("70");
+    await page.getByLabel("Industry match maximum").fill("70");
+    await page
+      .getByLabel("Profile", { exact: true })
+      .selectOption(f.aliceProfile.id);
+    await mkdir("artifacts/frontend", { recursive: true });
+    await page.screenshot({
+      path: "artifacts/frontend/jobs-filter-drawer-desktop.png",
+      animations: "disabled",
+    });
+    await page.getByRole("button", { name: "Apply filters" }).click();
     await page.waitForFunction(
       () =>
-        new URL(location.href).searchParams.get("collectedFrom") ===
-        "2026-11-08T12:00:00.000Z",
+        new URL(location.href).searchParams.get("registeredFrom") ===
+        "2026-11-08T05:00:00.000Z",
+    );
+    assert.equal(
+      new URL(page.url()).searchParams.get("registeredTo"),
+      "2026-11-09T04:59:59.999Z",
     );
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await page.waitForFunction(
@@ -416,9 +481,11 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
       })
       .waitFor();
     assert.equal(await page.evaluate(() => window.copiedJobs), copied);
+    await filterButton.click();
     await page
       .getByRole("combobox", { name: "Tracking status" })
       .selectOption("assigned");
+    await page.getByRole("button", { name: "Apply filters" }).click();
     await page.waitForFunction(
       () => new URL(location.href).searchParams.get("status") === "assigned",
     );
@@ -426,12 +493,19 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
     await page
       .getByRole("heading", { name: "Collected opportunities" })
       .waitFor();
+    await page
+      .getByRole("button", { name: "Remove Registered filter" })
+      .waitFor();
+    await filterButton.click();
     assert.equal(
-      new Date(
-        await page.getByLabel("Collected from").inputValue(),
-      ).toISOString(),
-      "2026-11-08T12:00:00.000Z",
+      await page.getByLabel("Registered from", { exact: true }).inputValue(),
+      "2026-11-08",
     );
+    assert.equal(
+      await page.getByLabel("Skill match minimum").inputValue(),
+      "80",
+    );
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.waitForFunction(
       () => document.querySelectorAll("tbody .status-assigned").length === 20,
     );
@@ -455,17 +529,37 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
       path: "artifacts/frontend/jobs-filters-mobile.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Clear time filter" }).click();
-    await page.waitForFunction(
-      () => !new URL(location.href).searchParams.has("collectedFrom"),
+    await filterButton.click();
+    await page.screenshot({
+      path: "artifacts/frontend/jobs-filter-drawer-mobile.png",
+      animations: "disabled",
+    });
+    assert.ok(
+      await page.getByRole("button", { name: "Apply filters" }).isVisible(),
     );
+    const drawerBox = await page.getByRole("dialog").boundingBox();
+    assert.equal(Math.round(drawerBox.width), 390);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Remove Registered filter" })
+      .click();
     await page.waitForFunction(
-      () => document.querySelector('input[name="collectedFrom"]').value === "",
+      () => !new URL(location.href).searchParams.has("registeredFrom"),
     );
     const url = new URL(page.url());
     assert.equal(url.searchParams.get("q"), "Export Engineer");
     assert.equal(url.searchParams.has("cursor"), false);
-    assert.equal(await page.getByLabel("Collected from").inputValue(), "");
+    await filterButton.click();
+    assert.equal(
+      await page.getByLabel("Registered from", { exact: true }).inputValue(),
+      "",
+    );
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForFunction(
+      () => !new URL(location.href).searchParams.has("company"),
+    );
+    assert.equal(new URL(page.url()).searchParams.get("q"), "Export Engineer");
     assert.deepEqual(f.errors, []);
   } finally {
     await f.close();

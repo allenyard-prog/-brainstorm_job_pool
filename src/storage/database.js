@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { migrate } from './migrations.js';
+import { jobFilterValues } from './job-filter-values.js';
 
 export class Store {
   constructor(path, { connectionId = null, userId = null } = {}) {
@@ -27,12 +28,14 @@ export class Store {
     const raw = job.raw == null ? null : JSON.stringify(job.raw);
     const now = new Date().toISOString();
     const owner = this.scope(site, account);
+    const values = jobFilterValues(job.details);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const row = this.db.prepare(`INSERT INTO jobs(scope_key,connection_id,user_id,account_key,site,source_job_id,url,title,company,details_json,raw_json,first_seen_at,last_scraped_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scope_key,source_job_id) DO UPDATE SET
         url=excluded.url,title=excluded.title,company=excluded.company,details_json=excluded.details_json,
         raw_json=excluded.raw_json,last_scraped_at=excluded.last_scraped_at RETURNING id`).get(owner.scope, owner.connection, owner.user, account, site, String(job.id), job.url, job.title, job.company ?? null, details, raw, now, now);
+      this.db.prepare('UPDATE jobs SET posted_date=?,match_total_score=?,match_skill_score=?,match_industry_score=? WHERE id=?').run(values.postedDate,values.totalMatch,values.skillMatch,values.industryMatch,row.id);
       this.db.prepare(`INSERT INTO job_processing(job_id,account_key,state,updated_at) VALUES(?,?,'saved',?)
         ON CONFLICT(job_id,account_key) DO NOTHING`).run(row.id, account, now);
       this.db.exec('COMMIT');

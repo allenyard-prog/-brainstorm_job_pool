@@ -9,10 +9,16 @@ import {
 import { invalidateJobs, useFilters, useResource } from "../data.js";
 import { useAuth } from "../auth.jsx";
 import { api, queryString, dateLabel, safeLink } from "../api.js";
+import JobFilterDrawer from "../JobFilterDrawer.jsx";
+import {
+  readJobFilters,
+  filterChips,
+  drawerKeys,
+  jobFilterBody,
+} from "../job-filters.js";
 import {
   Icon,
   PageHead,
-  ProfileSelect,
   ErrorNotice,
   Loading,
   Empty,
@@ -22,35 +28,16 @@ import {
   SectionHead,
 } from "../components.jsx";
 
-function localDateTime(value) {
-  const date = new Date(value);
-  if (!value || !Number.isFinite(date.valueOf())) return "";
-  return new Date(date.valueOf() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 19);
-}
-
 export function Jobs() {
   const { profiles, live, openCollection } = useOutletContext(),
     filters = useFilters(),
     sites = useResource("sites");
-  const connectionId = filters.params.get("connectionId") ?? "",
-    site = filters.params.get("site") ?? "",
-    status = filters.params.get("status") ?? "",
-    q = filters.params.get("q") ?? "",
-    collectedFrom = filters.params.get("collectedFrom") ?? "",
-    collectedTo = filters.params.get("collectedTo") ?? "";
-  const jobFilters = {
-    connectionId,
-    site,
-    status,
-    q,
-    collectedFrom,
-    collectedTo,
-  };
+  const jobFilters = readJobFilters(filters.params),
+    q = jobFilters.q;
+  const chips = filterChips(jobFilters, profiles.data ?? [], sites.data ?? []);
+  const [drawer, setDrawer] = useState(false);
   const [downloading, setDownloading] = useState(false),
     [downloadError, setDownloadError] = useState(null),
-    [timeError, setTimeError] = useState(null),
     [bulkAction, setBulkAction] = useState(null),
     [bulkError, setBulkError] = useState(null),
     [feedback, setFeedback] = useState("");
@@ -88,9 +75,7 @@ export function Jobs() {
     setFeedback("");
     try {
       if (kind === "assign") {
-        const body = Object.fromEntries(
-          Object.entries(jobFilters).filter(([, value]) => value !== ""),
-        );
+        const body = jobFilterBody(jobFilters);
         const result = await api("/jobs/assign", {
           method: "POST",
           body,
@@ -137,29 +122,6 @@ export function Jobs() {
         setBulkAction(null);
       }
     }
-  }
-  function applyTime(event) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const fromValue = data.get("collectedFrom"),
-      toValue = data.get("collectedTo");
-    const from = fromValue ? new Date(fromValue) : null,
-      to = toValue ? new Date(toValue) : null;
-    if (
-      (from && !Number.isFinite(from.valueOf())) ||
-      (to && !Number.isFinite(to.valueOf())) ||
-      (from && to && from > to)
-    ) {
-      setTimeError(
-        new Error("Collected from must be before or equal to collected to."),
-      );
-      return;
-    }
-    setTimeError(null);
-    filters.change({
-      collectedFrom: from?.toISOString() ?? "",
-      collectedTo: to?.toISOString() ?? "",
-    });
   }
   async function download() {
     if (downloadController.current) return;
@@ -231,43 +193,19 @@ export function Jobs() {
               <Icon name="arrow" size={15} />
             </button>
           </form>
-          <ProfileSelect
-            value={connectionId}
-            profiles={profiles.data ?? []}
-            onChange={(value) => filters.change({ connectionId: value })}
-          />
-          <label className="select-label">
-            <span className="sr-only">Job site</span>
-            <select
-              aria-label="Job site"
-              value={site}
-              onChange={(event) => filters.change({ site: event.target.value })}
-            >
-              <option value="">All sites</option>
-              {sites.data?.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-label">
-            <span className="sr-only">Tracking status</span>
-            <select
-              aria-label="Tracking status"
-              value={status}
-              onChange={(event) =>
-                filters.change({ status: event.target.value })
-              }
-            >
-              <option value="">All tracking</option>
-              <option value="available">Available (unassigned)</option>
-              <option value="assigned">Assigned</option>
-              <option value="saved">Saved</option>
-              <option value="mark_pending">Update unconfirmed</option>
-              <option value="mark_confirmed">Marked applied</option>
-            </select>
-          </label>
+          <button
+            className="button subtle"
+            aria-label={`Filters${chips.length ? `, ${chips.length} active` : ""}`}
+            aria-haspopup="dialog"
+            aria-expanded={drawer}
+            onClick={() => setDrawer(true)}
+          >
+            <Icon name="filter" size={16} />
+            Filters
+            {chips.length > 0 && (
+              <span className="filter-count">{chips.length}</span>
+            )}
+          </button>
           <div className="job-bulk-actions">
             <button
               type="button"
@@ -301,61 +239,54 @@ export function Jobs() {
             </button>
           </div>
         </div>
-        <form
-          className="time-filters"
-          key={`${collectedFrom}:${collectedTo}`}
-          onSubmit={applyTime}
-          onChange={() => setTimeError(null)}
-        >
-          <label>
-            Collected from
-            <input
-              type="datetime-local"
-              name="collectedFrom"
-              step="1"
-              defaultValue={localDateTime(collectedFrom)}
-            />
-          </label>
-          <label>
-            Collected to
-            <input
-              type="datetime-local"
-              name="collectedTo"
-              step="1"
-              defaultValue={localDateTime(collectedTo)}
-            />
-          </label>
-          <button type="submit" className="button subtle small">
-            Apply time filter
-          </button>
-          {(collectedFrom || collectedTo) && (
+        {chips.length > 0 && (
+          <div className="job-filter-chips" aria-label="Applied filters">
+            {chips.map((chip) => (
+              <button
+                className="filter-chip"
+                key={chip.label}
+                aria-label={`Remove ${chip.label} filter`}
+                title={`${chip.label}: ${chip.value}`}
+                onClick={() =>
+                  filters.change(
+                    Object.fromEntries(chip.keys.map((key) => [key, ""])),
+                  )
+                }
+              >
+                <span>
+                  {chip.label}: {chip.value}
+                </span>
+                <Icon name="close" size={12} />
+              </button>
+            ))}
             <button
-              type="button"
               className="text-button"
-              onClick={() => {
-                setTimeError(null);
-                filters.change({ collectedFrom: "", collectedTo: "" });
-              }}
+              onClick={() =>
+                filters.change(
+                  Object.fromEntries(drawerKeys.map((key) => [key, ""])),
+                )
+              }
             >
-              Clear time filter
+              Clear filters
             </button>
-          )}
-          <span className="time-filter-help">
-            Times are in your local time zone.
-          </span>
-        </form>
+          </div>
+        )}
         {feedback && (
           <div className="notice job-action-feedback" role="status">
             {feedback}
           </div>
         )}
-        <ErrorNotice error={timeError ?? bulkError ?? downloadError} />
+        <ErrorNotice error={bulkError ?? downloadError} />
         <ErrorNotice error={query.error} />
         {query.isPending ? (
           <Loading text="Loading collected jobs…" />
         ) : query.data?.items.length ? (
           <>
-            <JobsTable jobs={query.data.items} profiles={profiles.data} />
+            <JobsTable
+              jobs={query.data.items}
+              profiles={profiles.data}
+              showFilterMetrics
+            />
             <Pagination
               filters={filters}
               nextCursor={query.data.nextCursor}
@@ -365,12 +296,7 @@ export function Jobs() {
         ) : (
           <Empty
             title={
-              q ||
-              connectionId ||
-              status ||
-              site ||
-              collectedFrom ||
-              collectedTo
+              Object.values(jobFilters).some((value) => value !== "")
                 ? "No matching opportunities"
                 : "Your job library starts here"
             }
@@ -380,6 +306,18 @@ export function Jobs() {
           </Empty>
         )}
       </section>
+      {drawer && (
+        <JobFilterDrawer
+          filters={jobFilters}
+          profiles={profiles.data ?? []}
+          sites={sites.data ?? []}
+          onClose={() => setDrawer(false)}
+          onApply={(values) => {
+            filters.change(values);
+            setDrawer(false);
+          }}
+        />
+      )}
     </>
   );
 }

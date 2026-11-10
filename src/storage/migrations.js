@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { companySchema } from './company-schema.js';
+import { migrateJobFilters, isRevertedChatSchema } from './job-filter-values.js';
 
 export const activeStates = ['queued', 'starting', 'running', 'stop_requested'];
 export const executingStates = ['starting', 'running', 'stop_requested'];
@@ -27,15 +28,28 @@ CREATE INDEX processing_state ON job_processing(account_key,state);
 
 export function migrate(db, path) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 3) throw new Error('Database schema is newer than this application.');
-  if (version === 3) return;
+  if (version > 5) throw new Error('Database schema is newer than this application.');
+  if (version === 5) return;
+  if (version === 3 || version === 4) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current=db.prepare('PRAGMA user_version').get().user_version;
+      if(current!==5){
+        if(current===4&&!isRevertedChatSchema(db))throw new Error('Unrecognized version-4 database schema.');
+        if(![3,4].includes(current))throw new Error('Database schema changed during migration.');
+        migrateJobFilters(db);db.exec('PRAGMA user_version=5');
+      }
+      db.exec('COMMIT');
+    } catch(error) {db.exec('ROLLBACK');throw error;}
+    return;
+  }
   if (version === 2) {
     db.exec('BEGIN IMMEDIATE');
     try {
       if (db.prepare('PRAGMA user_version').get().user_version === 2) db.exec(companySchema + 'PRAGMA user_version=3');
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
-    return;
+    return migrate(db,path);
   }
   if (version === 1) {
     db.exec('BEGIN IMMEDIATE');

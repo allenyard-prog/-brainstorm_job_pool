@@ -5,6 +5,7 @@ import { dateLabel, canRetry, isActive } from "./api.js";
 
 export function Icon({ name, size = 18, ...props }) {
   const paths = {
+    filter: <path d="M3 6h18M6 12h12M10 18h4M7 4v4m10 2v4m-5 2v4" />,
     dashboard: (
       <>
         <rect x="3" y="3" width="7" height="9" rx="1.5" />
@@ -541,7 +542,7 @@ export function RunTable({ runs, profiles = [] }) {
     </div>
   );
 }
-export function JobsTable({ jobs, profiles = [] }) {
+export function JobsTable({ jobs, profiles = [], showFilterMetrics = false }) {
   const location = useLocation();
   return (
     <div className="table-scroll">
@@ -551,7 +552,9 @@ export function JobsTable({ jobs, profiles = [] }) {
             <th>Job</th>
             <th>Profile</th>
             <th>Tracking</th>
-            <th>Collected</th>
+            {showFilterMetrics && <th>Posted</th>}
+            <th>{showFilterMetrics ? "Registered" : "Collected"}</th>
+            {showFilterMetrics && <th>Match</th>}
             <th>
               <span className="sr-only">Details</span>
             </th>
@@ -584,9 +587,34 @@ export function JobsTable({ jobs, profiles = [] }) {
                   value={job.assignedAt ? "assigned" : job.processingState}
                 />
               </td>
+              {showFilterMetrics && (
+                <td className="secondary nowrap">{job.postedDate ?? "—"}</td>
+              )}
               <td className="secondary nowrap">
-                {dateLabel(job.lastScrapedAt)}
+                {dateLabel(
+                  showFilterMetrics ? job.firstSeenAt : job.lastScrapedAt,
+                )}
               </td>
+              {showFilterMetrics && (
+                <td className="job-match-scores">
+                  <strong>
+                    Total{" "}
+                    {job.matchingScores?.total == null
+                      ? "—"
+                      : `${Number(job.matchingScores.total.toFixed(1))}%`}
+                  </strong>
+                  <small>
+                    Skill{" "}
+                    {job.matchingScores?.skill == null
+                      ? "—"
+                      : `${Number(job.matchingScores.skill.toFixed(1))}%`}{" "}
+                    · Industry{" "}
+                    {job.matchingScores?.industry == null
+                      ? "—"
+                      : `${Number(job.matchingScores.industry.toFixed(1))}%`}
+                  </small>
+                </td>
+              )}
               <td>
                 <Link
                   className="icon-button"
