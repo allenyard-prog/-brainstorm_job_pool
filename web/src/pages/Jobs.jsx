@@ -484,8 +484,7 @@ export function JobDetail() {
   const from = location.state?.from;
   const back =
     typeof from === "string" &&
-    from.startsWith("/jobs") &&
-    !from.startsWith("//")
+    (/^\/jobs(?:\?|$)/.test(from) || /^\/companies\/\d+(?:\?|$)/.test(from))
       ? from
       : `/jobs${job.connectionId ? `?connectionId=${job.connectionId}` : ""}`;
   const salary =
@@ -501,7 +500,7 @@ export function JobDetail() {
   return (
     <>
       <Link className="back-link" to={back}>
-        ← Collected jobs
+        ← {back.startsWith("/companies/") ? "Company jobs" : "Collected jobs"}
       </Link>
       <section className="job-heading">
         <div className="company-avatar hero-avatar">
@@ -750,6 +749,20 @@ export function JobDetail() {
                 </dd>
                 <dt>Profile</dt>
                 <dd>{profile?.label ?? "Imported account"}</dd>
+                {job.companyId && (
+                  <>
+                    <dt>Company directory</dt>
+                    <dd>
+                      <Link
+                        className="text-button"
+                        to={`/companies/${job.companyId}`}
+                      >
+                        {job.companyName ?? job.company}{" "}
+                        <Icon name="arrow" size={14} />
+                      </Link>
+                    </dd>
+                  </>
+                )}
                 <dt>Posted</dt>
                 <dd>{dateLabel(details.postedAt)}</dd>
                 <dt>Collected</dt>

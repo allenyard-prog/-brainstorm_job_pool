@@ -21,6 +21,9 @@ The CLI resolves an imported account's `cli_default` connection when available. 
 | `job_processing` | Composite `(job_id, account_key)`; state; website status; error; update time | Local processing and external tracking state |
 | `runs` | UUID `id`; owner/connection; kind/transport/options; lifecycle; counters; phase; execution metadata | Durable queue and execution history |
 | `run_events` | Increasing integer `id`; run/owner; event type; JSON payload; creation time | Incremental sanitized progress history |
+| `companies` | Integer `id`; owner; searchable company fields; full JSON; field timestamps | Deduplicated company metadata across a user's profiles |
+| `company_identifiers` | Company/owner; kind, namespace, value | Source IDs, official domains, and normalized name aliases |
+| `company_syncs` | UUID `id`; owner; status; job cutoff; durable counters and timestamps | Manual background synchronization history |
 
 Connections are unique per `(user_id, site, account_key)`. Partial unique indexes enforce one queued/active run per connection, one executing worker per user, and one executing worker per source site/account. The supervisor separately enforces global capacity; filesystem locks also cover CLI execution.
 
@@ -102,6 +105,7 @@ Retry is allowed for stopped, failed, interrupted, and attention-required runs. 
 ## Resource pagination
 
 - Jobs use an opaque cursor derived from their integer ID and sort newest IDs first.
+- Companies use the same descending integer-ID cursor pattern.
 - Runs use an opaque cursor containing queue time and ID, with descending order.
 - Events use an increasing integer `after` cursor and ascending order within a run.
 
@@ -109,7 +113,7 @@ Job/run page size defaults to 20 with a maximum of 100. Filters remain owner sco
 
 ## Migrations and private files
 
-[`migrations.js`](../src/storage/migrations.js) currently manages schema version 1 through `PRAGMA user_version`. It rejects a newer unsupported version. Legacy conversion preserves full JSON and historical state, duplicates shared job rows into account scopes as needed, and records unfinished legacy runs as interrupted. Before upgrading a legacy database, it checks for live legacy runners and creates a `.pre-service.bak` backup if one is absent.
+[`migrations.js`](../src/storage/migrations.js) currently manages schema version 3 through `PRAGMA user_version`. Version 2 added local assignment; version 3 adds company storage, sync history, and nullable `jobs.company_id` without automatically linking existing jobs. See the [company directory guide](companies.md) for matching and synchronization rules. It rejects a newer unsupported version. Legacy conversion preserves full JSON and historical state, duplicates shared job rows into account scopes as needed, and records unfinished legacy runs as interrupted. Before upgrading a legacy database, it checks for live legacy runners and creates a `.pre-service.bak` backup if one is absent.
 
 Bootstrap explicitly associates imported accounts with the administrator; unclaimed legacy data remains hidden from API users. Future schema changes must add a versioned migration rather than only altering fresh-database SQL.
 

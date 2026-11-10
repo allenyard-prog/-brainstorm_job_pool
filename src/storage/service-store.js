@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Store } from './database.js';
+import { CompanyStore, companyRpcMethods } from './company-store.js';
 import { ServiceError, notFound } from '../service/errors.js';
 
 const now = () => new Date().toISOString();
@@ -16,7 +16,7 @@ export const userDto = row => ({ id: row.id, email: row.email, role: row.role, c
 export const connectionDto = row => ({ id: row.id, site: row.site, label: row.label, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
 export const runDto = row => ({ id: row.id, connectionId: row.connection_id, site: row.site, kind: row.kind, transport: row.transport, options: JSON.parse(row.options_json), status: row.status, phase: row.phase, queuedAt: row.queued_at, startedAt: row.started_at, endedAt: row.ended_at, heartbeatAt: row.heartbeat_at, counters: JSON.parse(row.counters_json), error: row.error ? { code: row.error_code ?? 'EXECUTION_ERROR', message: row.error } : null, forced: !!row.forced, parentRunId: row.parent_run_id });
 
-function jobWhere(userId, { cursor, site, connectionId, q, status, collectedFrom, collectedTo, availableOnly = false } = {}) {
+function jobWhere(userId, { cursor, site, connectionId, companyId, q, status, collectedFrom, collectedTo, availableOnly = false } = {}) {
   const clauses = ['j.user_id=?', 'j.id<?'], params = [userId, cursorDecode(cursor)];
   const from = collectedFrom ? new Date(collectedFrom) : null, to = collectedTo ? new Date(collectedTo) : null;
   if ((from && !Number.isFinite(from.valueOf())) || (to && !Number.isFinite(to.valueOf())) || (from && to && from > to)) {
@@ -26,6 +26,7 @@ function jobWhere(userId, { cursor, site, connectionId, q, status, collectedFrom
   if (to) { clauses.push('j.last_scraped_at<=?'); params.push(to.toISOString()); }
   if (site) { clauses.push('j.site=?'); params.push(site); }
   if (connectionId) { clauses.push('j.connection_id=?'); params.push(connectionId); }
+  if (companyId) { clauses.push('j.company_id=?'); params.push(companyId); }
   if (q) { clauses.push('(j.title LIKE ? ESCAPE \'\\\' OR j.company LIKE ? ESCAPE \'\\\')'); const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`; params.push(pattern, pattern); }
   if (status === 'assigned') clauses.push('j.assigned_at IS NOT NULL');
   else if (status) {
@@ -36,12 +37,7 @@ function jobWhere(userId, { cursor, site, connectionId, q, status, collectedFrom
   return { where: clauses.join(' AND '), params };
 }
 
-export class ServiceStore extends Store {
-  transaction(fn) {
-    this.db.exec('BEGIN IMMEDIATE');
-    try { const result = fn(); this.db.exec('COMMIT'); return result; }
-    catch (error) { this.db.exec('ROLLBACK'); throw error; }
-  }
+export class ServiceStore extends CompanyStore {
   ping() { return this.db.prepare('SELECT 1 AS ok').get(); }
   createUser({ email, passwordHash, role = 'user', bootstrap = false }) {
     return this.transaction(() => {
@@ -183,7 +179,7 @@ export class ServiceStore extends Store {
   }
   listJobs(userId, { limit = 20, includeDetails = false, ...filters } = {}) {
     const { where, params } = jobWhere(userId, filters);
-    const rows = this.db.prepare(`SELECT j.id,j.connection_id,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,p.state,p.website_status${includeDetails ? ',j.details_json' : ''} FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} ORDER BY j.id DESC LIMIT ?`).all(...params, limit + 1);
+    const rows = this.db.prepare(`SELECT j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,p.state,p.website_status${includeDetails ? ',j.details_json' : ''} FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where} ORDER BY j.id DESC LIMIT ?`).all(...params, limit + 1);
     const items = rows.slice(0, limit).map(row => ({ ...jobDto(row), ...(includeDetails ? { details: JSON.parse(row.details_json) } : {}) }));
     return { items, nextCursor: rows.length > limit ? cursorEncode(items.at(-1).id) : null };
   }
@@ -193,7 +189,7 @@ export class ServiceStore extends Store {
     return { assignedCount: Number(result.changes) };
   }
   jobDetail(userId, id, includeRaw = false) {
-    const row = this.db.prepare('SELECT j.*,p.state,p.website_status FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.id=? AND j.user_id=?').get(id, userId);
+    const row = this.db.prepare('SELECT j.*,c.name AS company_name,p.state,p.website_status FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE j.id=? AND j.user_id=?').get(id, userId);
     if (!row) throw notFound();
     return { ...jobDto(row), details: JSON.parse(row.details_json), ...(includeRaw ? { raw: row.raw_json ? JSON.parse(row.raw_json) : null } : {}) };
   }
@@ -209,6 +205,6 @@ export class ServiceStore extends Store {
     }));
   }
 }
-function jobDto(row) { return { id: row.id, connectionId: row.connection_id, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null }; }
+function jobDto(row) { return { id: row.id, connectionId: row.connection_id, companyId: row.company_id ?? null, companyName: row.company_name ?? null, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null }; }
 
-export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent'];
+export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent',...companyRpcMethods];

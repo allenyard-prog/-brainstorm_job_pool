@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { companySchema } from './company-schema.js';
 
 export const activeStates = ['queued', 'starting', 'running', 'stop_requested'];
 export const executingStates = ['starting', 'running', 'stop_requested'];
@@ -26,8 +27,16 @@ CREATE INDEX processing_state ON job_processing(account_key,state);
 
 export function migrate(db, path) {
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 2) throw new Error('Database schema is newer than this application.');
-  if (version === 2) return;
+  if (version > 3) throw new Error('Database schema is newer than this application.');
+  if (version === 3) return;
+  if (version === 2) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare('PRAGMA user_version').get().user_version === 2) db.exec(companySchema + 'PRAGMA user_version=3');
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    return;
+  }
   if (version === 1) {
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -36,7 +45,7 @@ export function migrate(db, path) {
       }
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
-    return;
+    return migrate(db, path);
   }
   const legacy = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'").get();
   if (legacy && path !== ':memory:') {
@@ -83,4 +92,5 @@ export function migrate(db, path) {
     }
     db.exec('PRAGMA user_version=2; COMMIT; PRAGMA foreign_keys=ON');
   } catch (error) { db.exec('ROLLBACK; PRAGMA foreign_keys=ON'); throw error; }
+  return migrate(db, path);
 }

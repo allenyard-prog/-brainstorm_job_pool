@@ -13,6 +13,7 @@ flowchart LR
     UI[React dashboard] -->|Session cookie and JSON| API[Fastify service]
     API --> AS[AsyncStore bridge]
     SUP[Supervisor in service process] --> AS
+    SYNC[Company sync coordinator] --> AS
     AS --> DBW[Persistent database worker thread]
     DBW --> DB[(SQLite WAL)]
     SUP -->|Start and stop over IPC| WORKER[Scraper child processes]
@@ -32,6 +33,7 @@ flowchart LR
 | React application | Authentication screens, profiles, run controls, job browsing, admin user management | [`web/src/`](../web/src/) |
 | Fastify service | Validation, session checks, ownership, resource APIs, OpenAPI, static frontend hosting | [`src/service/app.js`](../src/service/app.js) |
 | Supervisor | Claim queued work, enforce capacity, spawn workers, cancel, recover, and record unexpected exits | [`src/service/supervisor.js`](../src/service/supervisor.js) |
+| Company coordinator | Execute manually queued metadata syncs in bounded database-worker batches, independent of scraper capacity | [`src/service/company-sync.js`](../src/service/company-sync.js) |
 | Database bridge | Promise-based calls to synchronous SQLite operations on a persistent thread | [`src/storage/async-store.js`](../src/storage/async-store.js), [`db-worker.js`](../src/storage/db-worker.js) |
 | Managed worker | Acquire account lock, prepare credentials/browser, run a plugin, persist progress, clean up | [`src/service/worker.js`](../src/service/worker.js) |
 | Collection runner | Extract, persist, update website tracking, verify, and reconcile pending updates | [`src/core/runner.js`](../src/core/runner.js) |
@@ -39,6 +41,8 @@ flowchart LR
 | Storage | Schema migrations, job persistence, user ownership, durable queue, and events | [`src/storage/`](../src/storage/) |
 
 The database worker keeps synchronous SQLite waits off the HTTP event loop. Scrapers use their own database connections inside child processes. WAL and short transactions coordinate these connections; website requests never run inside database transactions.
+
+The [company directory](companies.md) is a derived, user-owned view of stored job metadata. Manual requests run through a separate durable `company_syncs` queue, yielding between batches of 100 jobs. They do not authenticate to a website or change application tracking. Company sync requests are independent of scraper runs and are not cron scheduled.
 
 ## Collection request flow
 

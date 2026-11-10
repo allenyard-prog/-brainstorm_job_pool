@@ -10,7 +10,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
-import { useResource, useLiveRuns } from "./data.js";
+import { useResource, useLiveRuns, useCompanySync } from "./data.js";
 import {
   Brand,
   ErrorNotice,
@@ -23,6 +23,7 @@ import { Runs, RunDetail } from "./pages/Runs.jsx";
 import Profiles from "./pages/Profiles.jsx";
 import { Jobs, JobDetail } from "./pages/Jobs.jsx";
 import Users from "./pages/Users.jsx";
+import { Companies, CompanyDetail } from "./pages/Companies.jsx";
 
 function PrivateRoute() {
   const auth = useAuth(),
@@ -174,6 +175,7 @@ function Login() {
   );
 }
 function Layout() {
+  const companySync = useCompanySync();
   const auth = useAuth(),
     location = useLocation(),
     navigate = useNavigate();
@@ -197,6 +199,7 @@ function Layout() {
     ["/profiles", "profiles", "Profiles"],
     ["/runs", "runs", "Collection runs"],
     ["/jobs", "jobs", "Collected jobs"],
+    ["/companies", "globe", "Companies"],
   ];
   const active = links.find(([path]) => location.pathname.startsWith(path));
   function openCollection() {
@@ -342,7 +345,7 @@ function Layout() {
         </header>
         <main id="main-content" className="content">
           <ErrorNotice error={logoutError ?? profiles.error ?? live.error} />
-          <Outlet context={{ profiles, live, openCollection }} />
+          <Outlet context={{ profiles, live, openCollection, companySync }} />
         </main>
         <footer className="app-footer">
           <span>GATHER WORKSPACE</span>
@@ -372,6 +375,8 @@ export default function App() {
           <Route path="runs/:id" element={<RunDetail />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="jobs/:id" element={<JobDetail />} />
+          <Route path="companies" element={<Companies />} />
+          <Route path="companies/:id" element={<CompanyDetail />} />
           <Route path="users" element={<Users />} />
           <Route
             path="*"

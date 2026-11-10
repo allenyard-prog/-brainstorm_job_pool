@@ -18,6 +18,8 @@ Initialization prompts for the first administrator and can claim existing record
 
 For frontend development, keep the backend running and use `.\npm.cmd run web:dev`; open **http://127.0.0.1:5173**. Run `.\npm.cmd run web:test` for component tests, and build before `.\npm.cmd run web:e2e` for fixture-backed Playwright tests.
 
+The **Companies** page builds a private, deduplicated company directory from collected job metadata. Click **Sync companies** to start a background sync with processed/total progress, then open a company to see its details and all linked roles. Sync runs only on request and leaves Jobright tracking unchanged. See the [company directory guide](docs/companies.md).
+
 ## Run on Windows
 
 A workspace-local Node.js runtime and Chromium are installed under `.tools/`. Use the wrapper so Node does not need to be on your PATH:

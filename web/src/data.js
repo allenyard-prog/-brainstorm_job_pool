@@ -9,7 +9,9 @@ export function invalidateJobs(cache, userId) {
     predicate: (query) =>
       query.queryKey[0] === "user" &&
       query.queryKey[1] === userId &&
-      (query.queryKey[2] === "jobs" || query.queryKey[2]?.startsWith("jobs/")),
+      (["jobs", "companies"].includes(query.queryKey[2]) ||
+        query.queryKey[2]?.startsWith("jobs/") ||
+        query.queryKey[2]?.startsWith("companies/")),
   });
 }
 
@@ -51,6 +53,26 @@ export function useAction() {
     },
   });
 }
+export const isCompanySyncActive = (status) =>
+  ["queued", "running"].includes(status);
+export function useCompanySync() {
+  const { user } = useAuth(),
+    cache = useQueryClient();
+  const query = useResource(
+    "company-syncs/latest",
+    {},
+    {
+      interval: (state) =>
+        isCompanySyncActive(state.state.data?.status) ? 2000 : false,
+    },
+  );
+  useEffect(() => {
+    if (query.data && !isCompanySyncActive(query.data.status)) {
+      invalidateJobs(cache, user.id);
+    }
+  }, [query.data?.id, query.data?.status, cache, user.id]);
+  return query;
+}
 export function useLiveRuns() {
   const query = useResource(
     "runs",
@@ -61,7 +83,12 @@ export function useLiveRuns() {
   const { user } = useAuth();
   const previous = useRef("");
   const signature = JSON.stringify(
-    query.data?.items?.map((run) => [run.id, run.status, run.counters.saved]),
+    query.data?.items?.map((run) => [
+      run.id,
+      run.status,
+      run.counters.saved,
+      run.counters.confirmed,
+    ]),
   );
   useEffect(() => {
     if (previous.current && signature !== previous.current) {

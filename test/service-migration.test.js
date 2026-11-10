@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ServiceStore } from '../src/storage/service-store.js';
 import { Store } from '../src/storage/database.js';
+import { migrate } from '../src/storage/migrations.js';
+
+const removeCompanySchema = 'DROP TRIGGER job_company_owner_update; DROP TRIGGER job_company_owner_insert; DROP INDEX owned_company_jobs; ALTER TABLE jobs DROP COLUMN company_id; DROP TABLE company_identifiers; DROP TABLE company_syncs; DROP TABLE companies;';
 
 test('legacy migration preserves JSON, account-specific states and CLI access while withholding unclaimed data', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'job-service-migrate-'));
@@ -60,10 +63,10 @@ test('version-one databases gain persistent assignment without changing content 
     const job = { id: 'persistent', title: 'Engineer', url: 'https://example.test/job', details: { description: { text: 'Retained details.' } } };
     const id = store.saveJob('jobright', 'a', job);
     store.transition(id, 'a', 'mark_pending');
-    store.db.exec('ALTER TABLE jobs DROP COLUMN assigned_at; PRAGMA user_version=1');
+    store.db.exec(removeCompanySchema + 'ALTER TABLE jobs DROP COLUMN assigned_at; PRAGMA user_version=1');
     store.close();
     store = new ServiceStore(path);
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 2);
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 3);
     assert.equal(store.jobDetail(user.id, id).assignedAt, null);
     assert.deepEqual(store.jobDetail(user.id, id).details, job.details);
     assert.equal(store.assignJobs(user.id).assignedCount, 1);
@@ -78,4 +81,25 @@ test('version-one databases gain persistent assignment without changing content 
     assert.equal(store.jobDetail(user.id, id).processingState, 'mark_confirmed');
     assert.equal(store.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('version-two migration adds empty company storage and retains assignment, raw JSON and pending writes',()=>{
+  // Build the prior schema in memory without modifying a real database.
+  const store=new ServiceStore(':memory:');
+  try {
+    const user=store.createUser({email:'migration@fixture.test',passwordHash:'fixture'});
+    store.createConnection({userId:user.id,site:'jobright',accountKey:'fixture',label:'Fixture',encryptedCredentials:'{}',cliDefault:true});
+    const job={id:'v2',title:'Engineer',company:'Acme',url:'https://fixture.test/job',details:{description:{text:'Full content. '.repeat(10000)},company:{companyName:'Acme'}},raw:{retained:true}};
+    const id=store.saveJob('jobright','fixture',job);store.transition(id,'fixture','mark_pending');store.assignJobs(user.id);
+    const assigned=store.jobDetail(user.id,id).assignedAt;
+    store.db.exec(removeCompanySchema+'PRAGMA user_version=2');
+    // Exercise the actual migration against the existing connection.
+    migrate(store.db,':memory:');
+    const result=store.jobDetail(user.id,id,true);
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version,3);
+    assert.equal(result.companyId,null);assert.equal(result.assignedAt,assigned);assert.equal(result.processingState,'mark_pending');
+    assert.deepEqual(result.details,job.details);assert.deepEqual(result.raw,job.raw);
+    assert.equal(store.listCompanies(user.id).items.length,0);assert.equal(store.latestCompanySync(user.id),null);
+    assert.equal(store.db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');
+  } finally {store.close();}
 });

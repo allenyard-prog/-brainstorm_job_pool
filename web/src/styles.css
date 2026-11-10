@@ -1,5 +1,104 @@
 @import url("./tokens.css");
 
+.company-sync-panel {
+  padding: 22px 24px;
+}
+.company-sync-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 22px;
+}
+.company-sync-heading h2 {
+  font-size: 14px;
+}
+.company-sync-heading p,
+.company-sync-hint,
+.company-count-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.company-sync-progress {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.company-sync-progress > div:first-child {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  font-size: 12px;
+}
+.company-sync-progress > div:first-child > span:last-child {
+  margin-left: auto;
+  color: var(--accent);
+}
+.company-sync-progress progress {
+  width: 100%;
+  height: 7px;
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--line);
+  margin-top: 15px;
+  accent-color: var(--accent);
+}
+.company-sync-progress progress::-webkit-progress-bar {
+  background: var(--line);
+}
+.company-sync-progress progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 5px;
+}
+.company-sync-progress p {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 10px;
+}
+.company-sync-progress p > span {
+  margin: 0 7px;
+}
+.company-sync-progress p.sync-complete {
+  color: var(--accent);
+}
+.company-sync-progress .notice {
+  margin-top: 15px;
+  margin-bottom: 0;
+}
+.company-industry {
+  display: block;
+  margin-top: 4px;
+}
+.company-detail-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+.company-table {
+  min-width: 780px;
+}
+@media (max-width: 680px) {
+  .company-sync-panel {
+    padding: 20px 18px;
+  }
+  .company-sync-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 15px;
+  }
+  .company-sync-progress > div:first-child {
+    flex-wrap: wrap;
+    gap: 9px;
+    font-size: 11px;
+  }
+  .company-sync-progress p > span {
+    margin: 0 3px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

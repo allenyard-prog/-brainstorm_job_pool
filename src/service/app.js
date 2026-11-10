@@ -12,6 +12,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { AsyncStore } from '../storage/async-store.js';
 import { Supervisor } from './supervisor.js';
+import { CompanySyncCoordinator } from './company-sync.js';
 import { acquireLock } from '../core/lock.js';
 import { loadPlugin, listSites } from '../core/plugin-registry.js';
 import { accountKey } from '../core/security.js';
@@ -28,10 +29,11 @@ export async function buildService(config, { supervise = true } = {}) {
   const db = new AsyncStore(config.dbPath);
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024, ajv: { customOptions: { removeAdditional: false } } });
   const supervisor = new Supervisor(db, config);
+  const companySyncs = new CompanySyncCoordinator(db);
   let closed = false;
   async function cleanup() {
     if (closed) return; closed = true;
-    try { await supervisor.close(); } finally { try { await db.close(); } finally { await release(); } }
+    try { await companySyncs.close(); } finally { try { await supervisor.close(); } finally { try { await db.close(); } finally { await release(); } } }
   }
   try {
     await db.ready;
@@ -41,6 +43,7 @@ export async function buildService(config, { supervise = true } = {}) {
     await app.register(swaggerUi, { routePrefix: '/docs' });
     app.decorateRequest('user', null);
     app.decorate('db', db); app.decorate('supervisor', supervisor);
+    app.decorate('companySyncs', companySyncs);
     app.setErrorHandler((error, request, reply) => {
       let status = error.statusCode ?? 500;
       if (status < 400 || status > 599) status = 500;
@@ -75,6 +78,15 @@ export async function buildService(config, { supervise = true } = {}) {
       await db.call('deleteSession', hashToken(request.cookies.session)); reply.clearCookie('session', cookieOptions); return { ok: true };
     });
     route('GET', '/auth/me', { response: s.response(200, s.user) }, request => request.user);
+    route('POST', '/company-syncs', { response: s.response(202, s.companySync) }, async (request, reply) => {
+      const sync = await db.call('enqueueCompanySync', request.user.id);
+      companySyncs.wake();
+      return reply.code(202).send(sync);
+    });
+    route('GET', '/company-syncs/latest', { response: s.response(200, { anyOf: [s.companySync,{ type: 'null' }] }) }, request => db.call('latestCompanySync',request.user.id));
+    route('GET', '/company-syncs/:id', { params: s.idParams, response: s.response(200,s.companySync) }, request => db.call('getCompanySync',request.user.id,request.params.id));
+    route('GET', '/companies', { querystring: bodySchema({ ...s.pagination, q: { type: 'string', maxLength: 200 }, connectionId: { type: 'string', maxLength: 100 } }), response: s.response(200,s.list(s.company)) }, request => db.call('listCompanies',request.user.id,request.query));
+    route('GET', '/companies/:id', { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }, response: s.response(200,s.companyDetail) }, async request => scrubSecrets(await db.call('companyDetail',request.user.id,request.params.id)));
     route('GET', '/sites', { response: s.response(200, { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
       id: { type: 'string' }, name: { type: 'string' }, transports: { type: 'array', items: { type: 'string' } }, operations: { type: 'array', items: { type: 'string' } },
     } } }) }, () => listSites(config.sites));
@@ -158,7 +170,7 @@ export async function buildService(config, { supervise = true } = {}) {
     });
     app.addHook('onClose', cleanup);
     await app.ready();
-    if (supervise) await supervisor.start();
+    if (supervise) { await supervisor.start(); await companySyncs.start(); }
     return app;
   } catch (error) { await cleanup(); throw error; }
 }

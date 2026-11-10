@@ -103,6 +103,7 @@ async function browserFixture({ timezoneId } = {}) {
   f.config.origin = address;
   f.config.allowedOrigins.splice(0, f.config.allowedOrigins.length, address);
   await f.app.supervisor.start();
+  await f.app.companySyncs.start();
   const browser = await chromium.launch({
     headless: true,
     channel: "chromium",
@@ -141,6 +142,160 @@ async function browserFixture({ timezoneId } = {}) {
     },
   };
 }
+
+test("browser UI: manual company sync, detailed directory, profiles, pagination and privacy", async () => {
+  const f = await browserFixture();
+  try {
+    const profile = await f.addConnection(
+      f.users.alice,
+      "second@provider.test",
+    );
+    const store = new ServiceStore(f.config.dbPath, {
+      userId: f.users.alice.id,
+      connectionId: profile.id,
+    });
+    try {
+      for (let i = 0; i < 22; i++) {
+        const id = store.saveJob("jobright", accountKey(profile.label), {
+          id: `company-role-${i}`,
+          title: `Company Role ${i}`,
+          url: `https://fixture.test/jobs/${i}`,
+          company: "Northstar Labs",
+          details: {
+            description: { text: "Job description." },
+            company: {
+              companyId: "northstar",
+              companyName: "Northstar Labs",
+              companyURL: "https://company.test",
+              companyDesc:
+                'Company details from stored metadata.\n<img src=x onerror="window.compromised=true">',
+              companyIndustry: "Software",
+              companySize: "100",
+              links: [{ text: "Unsafe link", url: "javascript:alert(1)" }],
+            },
+          },
+        });
+        if (i === 21) {
+          store.transition(
+            id,
+            accountKey(profile.label),
+            "mark_confirmed",
+            "applied",
+          );
+          store.assignJobs(f.users.alice.id, { connectionId: profile.id });
+        }
+      }
+    } finally {
+      store.close();
+    }
+    await f.login();
+    const { page } = f;
+    await page.getByRole("link", { name: "Companies", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Your company directory starts here" })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Sync companies", exact: true })
+      .click();
+    await page.getByText("23 / 23 jobs processed", { exact: true }).waitFor();
+    await page
+      .getByRole("link", { name: /Northstar Labs/ })
+      .first()
+      .waitFor();
+    await page.reload();
+    await page.getByText("23 / 23 jobs processed", { exact: true }).waitFor();
+    await page.screenshot({
+      path: "artifacts/frontend/companies-desktop.png",
+      fullPage: true,
+    });
+    await page
+      .getByRole("link", { name: /Northstar Labs/ })
+      .first()
+      .click();
+    await page
+      .getByRole("heading", { name: "Northstar Labs", exact: true })
+      .waitFor();
+    assert.equal(await page.locator("img").count(), 0);
+    assert.equal(
+      await page.getByRole("link", { name: "Unsafe link" }).count(),
+      0,
+    );
+    const role = page.getByRole("row").filter({ hasText: "Company Role 21" });
+    await role.getByText("Assigned", { exact: true }).waitFor();
+    await role.getByText("Marked applied", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page
+      .getByRole("link", { name: "Senior Data Engineer", exact: true })
+      .waitFor();
+    await page
+      .getByRole("link", { name: "Senior Data Engineer", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Senior Data Engineer", exact: true })
+      .waitFor();
+    await page
+      .getByRole("link", { name: "← Company jobs", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Northstar Labs", exact: true })
+      .waitFor();
+    assert.ok(new URL(page.url()).searchParams.has("cursor"));
+    await page
+      .getByRole("combobox", { name: "Profile", exact: true })
+      .selectOption(f.aliceProfile.id);
+    await page
+      .getByRole("link", { name: "Senior Data Engineer", exact: true })
+      .waitFor();
+    assert.equal(
+      await page.getByRole("link", { name: /Company Role/ }).count(),
+      0,
+    );
+    const companyUrl = page.url();
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "Northstar Labs", exact: true })
+      .waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".sidebar").getBoundingClientRect().right <= 0,
+    );
+    await page.screenshot({
+      path: "artifacts/frontend/company-mobile.png",
+      fullPage: true,
+    });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page
+      .getByRole("heading", { name: "Sign in to your workspace" })
+      .waitFor();
+    await page
+      .getByLabel("Email address", { exact: true })
+      .fill("bob@fixture.test");
+    await page.getByLabel("Password", { exact: true }).fill(backendPassword);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Your collection, in motion." })
+      .waitFor();
+    await page.goto(companyUrl);
+    await page.getByRole("heading", { name: "Company unavailable" }).waitFor();
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Northstar Labs", exact: true })
+        .count(),
+      0,
+    );
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.close();
+  }
+});
 
 test("browser UI: filters persist, CSV and Sheets cover every page, and assignment persists", async () => {
   const f = await browserFixture({ timezoneId: "America/New_York" });

@@ -73,6 +73,7 @@ export function mockBackend(initial = alice, overrides = {}) {
       return json({ ok: true });
     }
     if (route === "/connections") return json([profile]);
+    if (route === "/company-syncs/latest") return json(null);
     if (route === "/sites") return json([site]);
     if (route === "/runs" && options.method === "POST")
       return json({ id: "new-run", status: "queued" }, 202);

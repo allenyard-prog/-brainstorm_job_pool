@@ -139,6 +139,7 @@ const labels = {
   authenticating: "Signing in",
   saved: "Saved",
   assigned: "Assigned",
+  available: "Available",
   mark_pending: "Update unconfirmed",
   mark_confirmed: "Marked applied",
 };
