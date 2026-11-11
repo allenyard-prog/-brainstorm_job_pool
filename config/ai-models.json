@@ -1,0 +1,15 @@
+{
+  "openai": [],
+  "gemini": [],
+  "deepseek": [
+    {
+      "id": "deepseek-flash",
+      "capabilities": { "text": true, "json": true }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "capabilities": { "text": true, "json": true }
+    }
+  ],
+  "claude": []
+}

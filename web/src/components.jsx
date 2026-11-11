@@ -266,19 +266,39 @@ export function Pagination({ filters, nextCursor, busy }) {
     </div>
   );
 }
-export function Modal({ title, children, onClose }) {
+export function Modal({ title, children, onClose, closeDisabled = false }) {
   const ref = useRef(null),
+    opener = useRef(document.activeElement),
     id = useId();
   useEffect(() => {
     const element = ref.current;
     element.showModal();
-    return () => element.close();
+    return () => {
+      element.close();
+      queueMicrotask(() => {
+        if (!element.open && opener.current?.isConnected)
+          opener.current.focus({ preventScroll: true });
+      });
+    };
   }, []);
   return (
     <dialog
       ref={ref}
       className="modal"
       aria-labelledby={id}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const elements = [...ref.current.querySelectorAll('button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]')]
+          .filter(element => element.tabIndex >= 0 && !element.hidden);
+        const first = elements[0], last = elements.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -292,6 +312,7 @@ export function Modal({ title, children, onClose }) {
         <button
           className="icon-button"
           aria-label="Close dialog"
+          disabled={closeDisabled}
           onClick={onClose}
         >
           <Icon name="close" />

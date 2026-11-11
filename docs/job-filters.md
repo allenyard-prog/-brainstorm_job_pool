@@ -22,7 +22,9 @@ Total score comes from `details.matching.score`. Skill and industry aggregates c
 
 The shared boolean parameter `excludeBlacklistedCompanies` defaults to false. Send `true` to exclude jobs linked to the current user's blacklisted companies, or omit it to retain all companies. The frontend uses explicit booleans for JSON bulk-assignment bodies and omits the URL parameter when disabled.
 
-These filters are shared by `GET /api/v1/jobs`, `/jobs/export`, `/jobs/clipboard`, and `POST /jobs/assign` under the same prefix. Assignment accepts the filter object as its JSON body; the other operations use query parameters. List-only `cursor` and `limit` do not restrict bulk operations.
+These filters are shared by `GET /api/v1/jobs`, `/jobs/export`, `/jobs/clipboard`, `POST /jobs/assign`, and `POST /jobs/unassign` under the same prefix. Assignment and unassignment accept the filter object as their JSON body, with an optional `previewFingerprint`; read operations use query parameters. `/jobs/assignment-preview` accepts `{action, filters}` and counts the same affected set per profile. List-only cursor, page, page size, and sorting do not restrict bulk operations and are omitted from their request bodies.
+
+**Assign all Jobs** and **Unassign jobs** require confirmation in the UI, with a total and counts by profile across every filtered page. Only jobs whose assignment would change are counted. The **Available (unassigned)** status filter continues to select jobs with no local assignment. Filters are never silently overridden: assigning with `status=assigned`, or unassigning with `status=available` or a processing-state status, affects zero jobs. See [assignment confirmation](backend.md#assignment-confirmation) for stale-count handling and API examples.
 
 | Parameter                              | Meaning                                                       |
 | -------------------------------------- | ------------------------------------------------------------- |

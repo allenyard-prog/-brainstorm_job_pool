@@ -54,11 +54,18 @@ export class ProfileStore extends CompanyStore {
   }
   updateConnectionProfile(userId, id, input) {
     this.getConnection(userId, id);
-    this.db
-      .prepare(
-        "UPDATE connections SET person_name=?,updated_at=? WHERE id=? AND user_id=?",
-      )
-      .run(personName(input.personName), new Date().toISOString(), id, userId);
+    const fields = [], values = [];
+    if (Object.hasOwn(input, 'personName')) { fields.push('person_name=?'); values.push(personName(input.personName)); }
+    if (Object.hasOwn(input, 'specializationPrompt')) {
+      if (input.specializationPrompt !== null && (typeof input.specializationPrompt !== 'string' || input.specializationPrompt.length > 8000))
+        throw new ServiceError(400, 'INVALID_SPECIALIZATION_PROMPT', 'The specialization rule must contain at most 8,000 characters.');
+      fields.push('specialization_prompt=?'); values.push(input.specializationPrompt?.trim() || null);
+    }
+    if (Object.hasOwn(input, 'specializationModel')) {
+      fields.push('specialization_model_json=?'); values.push(input.specializationModel === null ? null : JSON.stringify(input.specializationModel));
+    }
+    if (fields.length) this.db.prepare(`UPDATE connections SET ${fields.join(',')},updated_at=? WHERE id=? AND user_id=?`)
+      .run(...values, new Date().toISOString(), id, userId);
     return this.connectionSummary(this.getConnection(userId, id));
   }
   createProfileTitle(userId, connectionId, input) {
@@ -156,7 +163,7 @@ export class ProfileStore extends CompanyStore {
       }
       this.db
         .prepare(
-          "UPDATE jobs SET preferred_title_id=? WHERE id=? AND user_id=?",
+            "UPDATE jobs SET preferred_title_id=?,preferred_title_revision=preferred_title_revision+1 WHERE id=? AND user_id=?",
         )
         .run(preferredTitleId, jobId, userId);
       return this.jobSummary(userId, jobId);

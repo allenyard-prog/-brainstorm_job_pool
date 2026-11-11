@@ -92,6 +92,10 @@ export function mockBackend(initial = alice, overrides = {}) {
         nextCursor: null,
       });
     if (route === "/jobs/1") return json(job);
+    if (route === '/jobs/assignment-preview') return json({
+      total: 1, fingerprint: 'a'.repeat(64),
+      profiles: [{ connectionId: profile.id, personName: null, label: profile.label, count: 1 }],
+    });
     if (route === "/users") return json([alice, bob]);
     return json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
   });

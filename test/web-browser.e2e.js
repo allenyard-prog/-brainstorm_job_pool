@@ -183,6 +183,81 @@ test("browser UI: blacklist companies, exclude linked jobs, synchronize and rest
   }
 });
 
+test('browser UI: confirm filtered assignment and unassignment by profile, stale counts and mobile keyboard controls', async () => {
+  const f = await browserFixture();
+  const { page } = f;
+  try {
+    const second = await f.addConnection(f.users.alice, 'assignment-second@provider.test');
+    await f.app.db.call('updateConnectionProfile', f.users.alice.id, f.aliceProfile.id, { personName: 'Daniel Zhang' });
+    function save(profile, index) {
+      const store = new ServiceStore(f.config.dbPath, { userId: f.users.alice.id, connectionId: profile.id });
+      try {
+        return store.saveJob('jobright', accountKey(profile.label), {
+          id: `assignment-${index}`, title: `Assignment Engineer ${index}`,
+          company: 'Assignment Company', url: 'https://employer.test/apply', details: { description: { text: 'Complete assignment fixture description.' } },
+        });
+      } finally { store.close(); }
+    }
+    const ids = Array.from({ length: 23 }, (_, i) => save(f.aliceProfile, i));
+    for (let i = 23; i < 27; i++) save(second, i);
+    const store = new ServiceStore(f.config.dbPath);
+    try { store.db.prepare('UPDATE jobs SET assigned_at=? WHERE id=?').run('2020-01-01T00:00:00.000Z', ids[0]); }
+    finally { store.close(); }
+    await f.login();
+    await page.goto(`${f.address}/jobs?q=Assignment&page=2&sortBy=company&sortOrder=asc`);
+    await page.getByText('Showing 21–27 of 27 jobs', { exact: true }).waitFor();
+    const assign = page.getByRole('button', { name: 'Assign all Jobs', exact: true });
+    await assign.click();
+    let dialog = page.getByRole('dialog', { name: 'Assign jobs', exact: true });
+    await dialog.getByText('26 jobs', { exact: true }).waitFor();
+    const breakdown = dialog.getByRole('table', { name: 'Affected jobs by profile' });
+    assert.equal(await breakdown.getByRole('row').count(), 3);
+    assert.ok((await breakdown.getByRole('row').filter({ hasText: 'Daniel Zhang' }).innerText()).includes('22'));
+    assert.ok((await breakdown.getByRole('row').filter({ hasText: second.label }).innerText()).includes('4'));
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await assign.evaluate(el => el === document.activeElement), true);
+    await page.keyboard.press('Enter');
+    await dialog.getByText('26 jobs', { exact: true }).waitFor();
+    const confirm = dialog.getByRole('button', { name: 'Confirm assignment', exact: true });
+    await confirm.focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await dialog.evaluate(el => el.contains(document.activeElement)), true);
+    save(second, 27);
+    await confirm.click();
+    await dialog.getByText(/Review the refreshed counts and confirm again/).waitFor();
+    await dialog.getByText('27 jobs', { exact: true }).waitFor();
+    const before = await page.request.get(`${f.address}/api/v1/jobs?status=assigned&q=Assignment&page=1`);
+    assert.equal((await before.json()).total, 1);
+    await confirm.click();
+    await page.getByText('27 jobs assigned.', { exact: true }).waitFor();
+    await page.getByText('Showing 1–20 of 28 jobs', { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.has('page'), false);
+    assert.equal(new URL(page.url()).searchParams.get('sortBy'), 'company');
+    assert.equal(new URL(page.url()).searchParams.get('sortOrder'), 'asc');
+    const original = await (await page.request.get(`${f.address}/api/v1/jobs/${ids[0]}`)).json();
+    assert.equal(original.assignedAt, '2020-01-01T00:00:00.000Z');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Unassign jobs', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Unassign jobs', exact: true });
+    await dialog.getByText('28 jobs', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    const box = await dialog.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= 390);
+    await dialog.getByRole('button', { name: 'Confirm unassignment', exact: true }).click();
+    await page.getByText('28 jobs unassigned.', { exact: true }).waitFor();
+    await page.goto(`${f.address}/jobs?q=Assignment&status=available`);
+    await page.getByText('Showing 1–20 of 28 jobs', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Unassign jobs', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Unassign jobs', exact: true });
+    await dialog.getByText('No assigned jobs match the current filters.', { exact: true }).waitFor();
+    assert.equal(await dialog.getByRole('button', { name: 'Confirm unassignment', exact: true }).isDisabled(), true);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 async function browserFixture({ timezoneId } = {}) {
   await access(resolve("web/dist/index.html"));
   const f = await serviceFixture({
@@ -642,6 +717,7 @@ test("browser UI: filters persist, CSV and Sheets cover every page, and assignme
     await page
       .getByRole("button", { name: "Assign all Jobs", exact: true })
       .click();
+    await page.getByRole('button', { name: 'Confirm assignment', exact: true }).click();
     await page.getByText("22 jobs assigned.", { exact: true }).waitFor();
     await page.waitForFunction(
       () => document.querySelectorAll("tbody .status-assigned").length === 20,

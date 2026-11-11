@@ -11,6 +11,8 @@ This project collects job information through website plugins, stores it in SQLi
 | [Data model](data-model.md) | Ownership, tables, JSON details, lifecycle states, and migrations |
 | [Company directory](companies.md) | Company identity, manual synchronization, progress, linked jobs, and APIs |
 | [Profile specializations](profile-specializations.md) | Person names, role labels, archiving, manual job preferences, filters, and APIs |
+| [AI generation](ai-generation.md) | Provider plugins, server keys/model allowlists, administrator generation APIs, JSON validation, and smoke tests |
+| [AI specialization recommendations](ai-recommendations.md) | Profile rules/models, automatic preferred titles, filtered background operations, progress and recovery |
 | [Advanced job filters](job-filters.md) | Drawer controls, date/score semantics, shared APIs, and derived search fields |
 | [Website plugins](website-plugins.md) | Plugin contract, browser-to-API discovery, and adding another website |
 | [Jobright browser-to-API skill](../skills/jobright-browser-to-api/SKILL.md) | Reusable Codex workflow for browser discovery, captured request contracts, API implementation, and parity checks |

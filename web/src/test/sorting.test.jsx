@@ -206,12 +206,13 @@ describe("sortable list headers", () => {
     await user.click(
       screen.getByRole("button", { name: "Assign all Jobs", exact: true }),
     );
+    await user.click(await screen.findByRole('button', { name: 'Confirm assignment' }));
     await waitFor(() =>
       expect(requests(backend, "jobs/assign")).toHaveLength(1),
     );
     const [, options] = backend.fetch.mock.calls.find(
       ([url]) => url === "/api/v1/jobs/assign",
     );
-    expect(JSON.parse(options.body)).toEqual({ company: "Example" });
+    expect(JSON.parse(options.body)).toEqual({ company: "Example", previewFingerprint: 'a'.repeat(64) });
   });
 });

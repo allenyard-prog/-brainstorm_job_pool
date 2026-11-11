@@ -165,6 +165,7 @@ it("passes every applied advanced filter to bulk actions and displays normalized
   await userEvent.click(
     screen.getByRole("button", { name: "Assign all Jobs" }),
   );
+  await userEvent.click(await screen.findByRole('button', { name: 'Confirm assignment' }));
   await screen.findByText("1 job assigned.");
   const request = backend.fetch.mock.calls.find(
     ([path]) => path === "/api/v1/jobs/assign",
@@ -177,5 +178,6 @@ it("passes every applied advanced filter to bulk actions and displays normalized
     skillMatchMax: 80.125,
     industryMatchMin: 50,
     connectionId: profile.id,
+    previewFingerprint: 'a'.repeat(64),
   });
 });

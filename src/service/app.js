@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import Ajv from 'ajv';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
@@ -20,6 +21,10 @@ import { hashPassword, verifyPassword, hashToken, encryptCredentials, scrubSecre
 import { ServiceError } from './errors.js';
 import * as s from './schemas.js';
 import { jobCsv, jobTsv } from './job-export.js';
+import { createAiService } from '../ai/index.js';
+import { registerAiRoutes } from './ai-routes.js';
+import { RecommendationCoordinator } from './recommendations.js';
+import { registerRecommendationRoutes } from './recommendation-routes.js';
 
 const bodySchema = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
 const empty = { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } } };
@@ -30,13 +35,19 @@ export async function buildService(config, { supervise = true } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024, ajv: { customOptions: { removeAdditional: false } } });
   const supervisor = new Supervisor(db, config);
   const companySyncs = new CompanySyncCoordinator(db);
+  let ai, recommendations;
   let closed = false;
   async function cleanup() {
     if (closed) return; closed = true;
-    try { await companySyncs.close(); } finally { try { await supervisor.close(); } finally { try { await db.close(); } finally { await release(); } } }
+    try { await recommendations?.close(); } finally { try { await ai?.close(); } finally { try { await companySyncs.close(); } finally { try { await supervisor.close(); } finally { try { await db.close(); } finally { await release(); } } } } }
   }
   try {
     await db.ready;
+    ai = await createAiService(config.ai);
+    app.decorate('ai', ai);
+    recommendations = new RecommendationCoordinator(db, ai);
+    app.decorate('recommendations', recommendations);
+    app.addHook('preClose', async () => { await recommendations.close(); await ai.close(); });
     await app.register(cookie);
     await app.register(rateLimit, { global: false, hook: 'preHandler' });
     await app.register(swagger, { openapi: { info: { title: 'Job automation API', version: '1.0.0' }, components: { securitySchemes: { session: { type: 'apiKey', in: 'cookie', name: 'session' } } } } });
@@ -65,6 +76,8 @@ export async function buildService(config, { supervise = true } = {}) {
     });
     const route = (method, url, schema, handler, options = {}) => app.route({ method, url: `/api/v1${url}`, schema: { ...schema, security: options.public ? [] : [{ session: [] }] }, config: options, handler });
     const cookieOptions = { httpOnly: true, sameSite: 'strict', secure: config.secureCookies, path: '/api/v1', maxAge: Math.floor(config.sessionMs / 1000) };
+    registerAiRoutes(app, ai);
+    registerRecommendationRoutes(app, recommendations);
 
     route('POST', '/auth/login', { body: bodySchema({ email: s.credentials.email, password: { type: 'string', minLength: 1, maxLength: 256 } }, ['email','password']), response: s.response(200, s.user) }, async (request, reply) => {
       const user = await db.call('findUser', request.body.email);
@@ -104,7 +117,14 @@ export async function buildService(config, { supervise = true } = {}) {
       return reply.code(201).send(result);
     });
     route('GET', '/connections', { response: s.response(200, { type: 'array', items: s.connection }) }, request => db.call('listConnections', request.user.id));
-    route('PATCH', '/connections/:id', { params: s.idParams, body: bodySchema({ personName: s.personName }, ['personName']), response: s.response(200, s.connection) }, request => db.call('updateConnectionProfile', request.user.id, request.params.id, request.body));
+    app.route({method:'PATCH',url:'/api/v1/connections/:id',bodyLimit:64*1024,validatorCompiler:({schema})=>new Ajv({coerceTypes:false,useDefaults:false,removeAdditional:false}).compile(schema),schema:{security:[{session:[]}],params:s.idParams,body:{...bodySchema({personName:s.personName,specializationPrompt:s.specializationPrompt,specializationModel:s.specializationModel}),minProperties:1},response:s.response(200,s.connection)},handler:async request=>{
+      await db.call('getConnection',request.user.id,request.params.id);
+      if (Object.hasOwn(request.body,'specializationPrompt') || Object.hasOwn(request.body,'specializationModel')) {
+        if(request.user.role!=='admin') throw new ServiceError(403,'FORBIDDEN','Administrator access is required.');
+        if(request.body.specializationModel) ai.validateModel(request.body.specializationModel);
+      }
+      return db.call('updateConnectionProfile',request.user.id,request.params.id,request.body);
+    }});
     route('POST', '/connections/:id/titles', { params: s.idParams, body: bodySchema({ title: s.titleName }, ['title']), response: s.response(201, s.profileTitle) }, async (request, reply) => {
       return reply.code(201).send(await db.call('createProfileTitle', request.user.id, request.params.id, request.body));
     });
@@ -143,7 +163,9 @@ export async function buildService(config, { supervise = true } = {}) {
     });
     route('GET', '/runs/:id/events', { params: s.idParams, querystring: bodySchema({ after: { type: 'integer', minimum: 0, default: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }), response: s.response(200, { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: { type: 'integer' }, type: { type: 'string' }, payload: { type: 'object', additionalProperties: true }, createdAt: { type: 'string' } } } }, nextCursor: { type: 'integer' } } }) }, request => db.call('events', request.user.id, request.params.id, request.query));
     route('GET', '/jobs', { querystring: bodySchema({ ...s.listPagination, ...s.jobFilters, ...s.jobSorting }), response: s.response(200, s.pagedList(s.job)) }, request => db.call('listJobs', request.user.id, request.query));
-    route('POST', '/jobs/assign', { body: bodySchema(s.jobFilters), response: s.response(200, bodySchema({ assignedCount: { type: 'integer', minimum: 0 } }, ['assignedCount'])) }, request => db.call('assignJobs', request.user.id, request.body));
+    route('POST', '/jobs/assignment-preview', { body: bodySchema({ action: { type: 'string', enum: ['assign','unassign'] }, filters: bodySchema(s.jobFilters) }, ['action','filters']), response: s.response(200, s.assignmentPreview) }, request => db.call('assignmentPreview', request.user.id, request.body.action, request.body.filters));
+    route('POST', '/jobs/assign', { body: bodySchema({ ...s.jobFilters, previewFingerprint: s.previewFingerprint }), response: s.response(200, bodySchema({ assignedCount: { type: 'integer', minimum: 0 } }, ['assignedCount'])) }, request => db.call('assignJobs', request.user.id, request.body));
+    route('POST', '/jobs/unassign', { body: bodySchema({ ...s.jobFilters, previewFingerprint: s.previewFingerprint }), response: s.response(200, bodySchema({ unassignedCount: { type: 'integer', minimum: 0 } }, ['unassignedCount'])) }, request => db.call('unassignJobs', request.user.id, request.body));
     route('GET', '/jobs/clipboard', { querystring: bodySchema({ ...s.jobFilters, ...s.jobSorting }), response: s.response(200, { type: 'string' }) }, async (request, reply) => {
       const firstPage = await db.call('listJobs', request.user.id, { ...request.query, limit: 100, includeApplicationUrl: true });
       return reply.type('text/plain; charset=utf-8').header('Cache-Control', 'private, no-store')
@@ -180,7 +202,7 @@ export async function buildService(config, { supervise = true } = {}) {
     });
     app.addHook('onClose', cleanup);
     await app.ready();
-    if (supervise) { await supervisor.start(); await companySyncs.start(); }
+    if (supervise) { await supervisor.start(); await companySyncs.start(); await recommendations.start(); }
     return app;
   } catch (error) { await cleanup(); throw error; }
 }

@@ -160,6 +160,7 @@ it("blacklist exclusion follows drawer drafts, URL state, reset and typed bulk r
   expect(url.searchParams.get("excludeBlacklistedCompanies")).toBe("true");
   expect(url.searchParams.has("cursor")).toBe(false);
   await user.click(screen.getByRole("button", { name: "Assign all Jobs" }));
+  await user.click(await screen.findByRole('button', { name: 'Confirm assignment' }));
   await screen.findByText("1 job assigned.");
   const request = backend.fetch.mock.calls.find(
     ([path]) => path === "/api/v1/jobs/assign",
@@ -167,6 +168,7 @@ it("blacklist exclusion follows drawer drafts, URL state, reset and typed bulk r
   expect(JSON.parse(request[1].body)).toEqual({
     q: "Engineer",
     excludeBlacklistedCompanies: true,
+    previewFingerprint: 'a'.repeat(64),
   });
   await user.click(screen.getByRole("button", { name: /^Filters/ }));
   expect(screen.getByLabelText("Exclude blacklisted companies")).toBeChecked();

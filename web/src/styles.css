@@ -1850,6 +1850,18 @@ tbody tr:hover {
   background: #050b09b0;
   backdrop-filter: blur(4px);
 }
+.assignment-profile-list {
+  max-height: 40dvh;
+  overflow: auto;
+}
+.assignment-profile-list table { width: 100%; }
+.assignment-profile-list th, .assignment-profile-list td {
+  padding: 10px 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.assignment-profile-list th:last-child, .assignment-profile-list td:last-child { text-align: right; }
+.assignment-profile-list small { display: block; color: var(--muted); margin-top: 4px; font-weight: normal; }
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -2865,3 +2877,17 @@ tbody tr:hover {
 .preferred-title-control small { display: block; color: var(--muted); margin-top: 6px; font-size: 10px; }
 .preferred-title-control .notice { padding: 8px; margin-top: 8px; font-size: 10px; }
 @media (max-width: 640px) { .specialization-row { align-items: flex-start; flex-direction: column; } }
+.profile-ai-settings { border-top: 1px solid var(--line); padding-top: 18px; }
+.profile-ai-settings textarea { width: 100%; resize: vertical; min-height: 130px; padding: 12px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }
+.ai-model-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.ai-model-fields label { min-width: 0; }
+.ai-model-fields select { width: 100%; }
+.ai-recommendation { margin-bottom: 20px; padding: 20px; }
+.ai-recommendation h2 { font-size: 16px; margin: 0 0 8px; }
+.ai-recommendation-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ai-recommendation-heading p { margin: 0; max-width: 760px; }
+.ai-recommendation-heading > button { flex-shrink: 0; }
+.ai-recommendation-progress { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.ai-recommendation-progress progress { width: 100%; accent-color: var(--accent); margin-top: 14px; }
+.ai-recommendation details { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .ai-model-fields { grid-template-columns: 1fr; } .ai-recommendation-heading { align-items: flex-start; flex-direction: column; } .ai-recommendation-heading > button { width: 100%; } }

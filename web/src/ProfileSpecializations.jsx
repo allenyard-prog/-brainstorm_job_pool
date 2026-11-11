@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAction } from "./data.js";
 import { Modal, ErrorNotice } from "./components.jsx";
+import { useAuth } from './auth.jsx';
+import ProfileAiSettings from './ProfileAiSettings.jsx';
 
 function TitleRow({ title, profileId, action }) {
   const [editing, setEditing] = useState(false),
@@ -87,6 +89,7 @@ function TitleRow({ title, profileId, action }) {
 }
 
 export default function ProfileSpecializations({ profile, onClose }) {
+  const {user}=useAuth();
   const action = useAction();
   const [name, setName] = useState(profile.personName ?? ""),
     [title, setTitle] = useState("");
@@ -177,6 +180,7 @@ export default function ProfileSpecializations({ profile, onClose }) {
             )}
           </section>
         ))}
+        {user.role==='admin' && <ProfileAiSettings key={profile.id} profile={profile}/>}
         <ErrorNotice error={action.error} />
         <div className="modal-actions">
           <button type="button" className="button subtle" onClick={onClose}>

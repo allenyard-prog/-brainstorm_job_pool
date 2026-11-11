@@ -42,6 +42,10 @@ flowchart LR
 
 The database worker keeps synchronous SQLite waits off the HTTP event loop. Scrapers use their own database connections inside child processes. WAL and short transactions coordinate these connections; website requests never run inside database transactions.
 
+The optional [AI service](ai-generation.md) runs separate provider adapters through asynchronous HTTP in the backend process. Administrator endpoints share bounded generation capacity and cancellation; scraper/database workers do not perform inference. Provider keys remain in server configuration, and no generation history or implicit job-data access is added. This layer does not restore the reverted chatbot.
+
+[AI specialization recommendations](ai-recommendations.md) use a separate coordinator in the API process, durable operation/item records in SQLite, and the same AI capacity limits. An administrator explicitly queues a filtered job snapshot. Profile rules/models are captured at execution start, relevant job context is supplied to generation, and validated title IDs are saved through the database worker with revision checks. Shutdown aborts the coordinator before closing AI/database resources. These operations do not use scraper processes or account locks.
+
 The [company directory](companies.md) is a derived, user-owned view of stored job metadata. Manual requests run through a separate durable `company_syncs` queue, yielding between batches of 100 jobs. They do not authenticate to a website or change application tracking. Company sync requests are independent of scraper runs and are not cron scheduled.
 
 ## Collection request flow

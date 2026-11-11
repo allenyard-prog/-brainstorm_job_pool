@@ -566,7 +566,7 @@ test("version-six migration preserves data, links and pending tracking and rolls
     );
     store.db.exec("DROP TABLE profile_titles");
     migrate(store.db, ":memory:");
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 7);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 8);
     assert.deepEqual(store.jobDetail(user.id, id, true), before);
     assert.equal(
       store.companyDetail(user.id, before.companyId).isBlacklisted,

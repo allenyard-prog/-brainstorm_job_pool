@@ -1,21 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import { companyRpcMethods } from './company-store.js';
-import { ProfileStore, profileRpcMethods, profileTitleDto, personName } from './profile-titles.js';
+import { profileRpcMethods, profileTitleDto, personName } from './profile-titles.js';
+import { RecommendationStore, recommendationRpcMethods } from './recommendations.js';
 import { ServiceError, notFound } from '../service/errors.js';
 import { jobWhere } from './job-filters.js';
 import { jobSortFields, listSorting } from './list-sorting.js';
 import { readListPage } from './list-pagination.js';
+import { assignmentSelection, changeAssignment } from './job-assignment.js';
 
 const now = () => new Date().toISOString();
 const active = "('queued','starting','running','stop_requested')";
 const executing = "('starting','running','stop_requested')";
 export const userDto = row => ({ id: row.id, email: row.email, role: row.role, createdAt: row.created_at });
-export const connectionDto = (row, titles = []) => ({ id: row.id, site: row.site, label: row.label, personName: row.person_name ?? null, titles, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
+export const connectionDto = (row, titles = []) => ({ id: row.id, site: row.site, label: row.label, personName: row.person_name ?? null, specializationPrompt:row.specialization_prompt ?? null, specializationModel:row.specialization_model_json ? JSON.parse(row.specialization_model_json) : null, titles, authStatus: row.auth_status, createdAt: row.created_at, updatedAt: row.updated_at });
 export const runDto = row => ({ id: row.id, connectionId: row.connection_id, site: row.site, kind: row.kind, transport: row.transport, options: JSON.parse(row.options_json), status: row.status, phase: row.phase, queuedAt: row.queued_at, startedAt: row.started_at, endedAt: row.ended_at, heartbeatAt: row.heartbeat_at, counters: JSON.parse(row.counters_json), error: row.error ? { code: row.error_code ?? 'EXECUTION_ERROR', message: row.error } : null, forced: !!row.forced, parentRunId: row.parent_run_id });
 
 const jobFields = `j.id,j.connection_id,j.company_id,c.name AS company_name,j.site,j.source_job_id,j.url,j.title,j.company,j.first_seen_at,j.last_scraped_at,j.assigned_at,j.posted_date,j.match_total_score,j.match_skill_score,j.match_industry_score,p.state,p.website_status,j.preferred_title_id,preferred.title AS preferred_title,preferred.is_archived AS preferred_title_archived`;
 const jobJoins = `FROM jobs j LEFT JOIN companies c ON c.id=j.company_id AND c.user_id=j.user_id LEFT JOIN connections connection ON connection.id=j.connection_id AND connection.user_id=j.user_id LEFT JOIN profile_titles preferred ON preferred.id=j.preferred_title_id AND preferred.user_id=j.user_id AND preferred.connection_id=j.connection_id LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key`;
-export class ServiceStore extends ProfileStore {
+export class ServiceStore extends RecommendationStore {
   ping() { return this.db.prepare('SELECT 1 AS ok').get(); }
   createUser({ email, passwordHash, role = 'user', bootstrap = false }) {
     return this.transaction(() => {
@@ -169,9 +171,13 @@ export class ServiceStore extends ProfileStore {
     return { items, nextCursor: rows.length > limit ? sorting.cursor(rows[limit - 1]) : null, ...metadata };
   }
   assignJobs(userId, filters = {}) {
-    const { where, params } = jobWhere(userId, { ...filters, availableOnly: true });
-    const result = this.db.prepare(`UPDATE jobs SET assigned_at=? WHERE id IN (SELECT j.id FROM jobs j LEFT JOIN job_processing p ON p.job_id=j.id AND p.account_key=j.account_key WHERE ${where})`).run(now(), ...params);
-    return { assignedCount: Number(result.changes) };
+    return changeAssignment(this, userId, 'assign', filters);
+  }
+  unassignJobs(userId, filters = {}) {
+    return changeAssignment(this, userId, 'unassign', filters);
+  }
+  assignmentPreview(userId, action, filters = {}) {
+    return assignmentSelection(this.db, userId, action, filters).preview;
   }
   jobDetail(userId, id, includeRaw = false) {
     const row = this.db.prepare(`SELECT ${jobFields},j.details_json${includeRaw ? ',j.raw_json' : ''} ${jobJoins} WHERE j.id=? AND j.user_id=?`).get(id, userId);
@@ -197,4 +203,4 @@ export class ServiceStore extends ProfileStore {
 }
 function jobDto(row) { return { id: row.id, connectionId: row.connection_id, companyId: row.company_id ?? null, companyName: row.company_name ?? null, site: row.site, sourceJobId: row.source_job_id, url: row.url, title: row.title, company: row.company, firstSeenAt: row.first_seen_at, lastScrapedAt: row.last_scraped_at, assignedAt: row.assigned_at ?? null, processingState: row.state ?? null, websiteStatus: row.website_status ?? null, postedDate:row.posted_date??null, matchingScores:{total:row.match_total_score??null,skill:row.match_skill_score??null,industry:row.match_industry_score??null}, preferredTitleId: row.preferred_title_id ?? null, preferredTitle: row.preferred_title ?? null, preferredTitleArchived: Boolean(row.preferred_title_archived) }; }
 
-export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','jobDetail','addEvent',...companyRpcMethods,...profileRpcMethods];
+export const rpcMethods = ['ping','createUser','listUsers','findUser','createSession','sessionUser','deleteSession','createConnection','listConnections','getConnection','updateCredentials','enqueue','getRun','listRuns','stopRun','claim','workerPid','control','defer','endRun','recover','staleRuns','events','listJobs','assignJobs','unassignJobs','assignmentPreview','jobDetail','addEvent',...companyRpcMethods,...profileRpcMethods,...recommendationRpcMethods];

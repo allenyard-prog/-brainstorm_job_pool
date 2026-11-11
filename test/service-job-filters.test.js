@@ -132,10 +132,12 @@ test("advanced filters combine inclusively, paginate and constrain export, clipb
       ).json().items.length,
       0,
     );
+    const preview = await f.request('POST', '/api/v1/jobs/assignment-preview', { action: 'assign', filters: f.filters }, f.cookie);
+    assert.equal(preview.json().total, 24);
     const assign = await f.request(
       "POST",
       "/api/v1/jobs/assign",
-      f.filters,
+      { ...f.filters, previewFingerprint: preview.json().fingerprint },
       f.cookie,
     );
     assert.equal(assign.statusCode, 200);
@@ -186,6 +188,10 @@ test("advanced filters combine inclusively, paginate and constrain export, clipb
         .length,
       31,
     );
+    const unassignPreview = await f.request('POST', '/api/v1/jobs/assignment-preview', { action: 'unassign', filters: f.filters }, f.cookie);
+    assert.equal(unassignPreview.json().total, 24);
+    const unassign = await f.request('POST', '/api/v1/jobs/unassign', { ...f.filters, previewFingerprint: unassignPreview.json().fingerprint }, f.cookie);
+    assert.equal(unassign.json().unassignedCount, 24);
   } finally {
     await f.close();
   }

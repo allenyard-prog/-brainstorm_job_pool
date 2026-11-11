@@ -7,6 +7,10 @@ export const personName = { anyOf: [{ type: 'string', maxLength: 200 }, { type: 
 export const titleName = { type: 'string', minLength: 1, maxLength: 100 };
 export const preferredTitleId = { anyOf: [{ const: null }, { type: 'string', format: 'uuid' }] };
 Object.assign(connection.properties, { personName, titles: { type: 'array', items: profileTitle } });
+export const specializationPrompt = { anyOf:[{type:'string',maxLength:8000},{type:'null'}] };
+export const specializationModel = { anyOf:[{type:'null'},{type:'object',additionalProperties:false,required:['provider','id'],properties:{provider:{type:'string',enum:['openai','gemini','deepseek','claude']},id:{type:'string',minLength:1,maxLength:200}}}] };
+Object.assign(connection.properties,{specializationPrompt,specializationModel});
+export const recommendation = object({id:{type:'string'},status:{type:'string'},...Object.fromEntries(['total','processed','updated','unchanged','unmatched','skipped','failed'].map(key=>[key,{type:'integer',minimum:0}])),queuedAt:{type:'string'},startedAt:nullableString,endedAt:nullableString,errorCode:nullableString,issues:{type:'array',items:object({code:{type:'string'},count:{type:'integer'}})}});
 export const run = object({ id: { type: 'string' }, connectionId: nullableString, site: { type: 'string' }, kind: { type: 'string' }, transport: { type: 'string' }, options: { type: 'object', additionalProperties: true }, status: { type: 'string' }, phase: nullableString, queuedAt: { type: 'string' }, startedAt: nullableString, endedAt: nullableString, heartbeatAt: nullableString, counters: { type: 'object', additionalProperties: { type: 'number' } }, error: { anyOf: [object({ code: { type: 'string' }, message: { type: 'string' } }), { type: 'null' }] }, forced: { type: 'boolean' }, parentRunId: nullableString });
 export const job = object({ id: { type: 'integer' }, connectionId: nullableString, companyId: { anyOf: [{ type: 'integer' }, { type: 'null' }] }, companyName: nullableString, site: { type: 'string' }, sourceJobId: { type: 'string' }, url: { type: 'string' }, title: { type: 'string' }, company: nullableString, firstSeenAt: { type: 'string' }, lastScrapedAt: { type: 'string' }, assignedAt: nullableString, processingState: nullableString, websiteStatus: nullableString });
 Object.assign(job.properties, { preferredTitleId, preferredTitle: nullableString, preferredTitleArchived: { type: 'boolean' } });
@@ -41,6 +45,9 @@ export const jobFilters = {
   collectedTo: { type: 'string', format: 'date-time', maxLength: 40 },
 };
 export const credentials = { email: { type: 'string', format: 'email', maxLength: 320 }, password: { type: 'string', minLength: 1, maxLength: 1000 } };
+export const previewFingerprint = { type: 'string', pattern: '^[a-f0-9]{64}$' };
+export const assignmentPreview = object({ total: { type: 'integer', minimum: 0 }, fingerprint: previewFingerprint,
+  profiles: { type: 'array', items: object({ connectionId: nullableString, personName: nullableString, label: { type: 'string' }, count: { type: 'integer', minimum: 1 } }) } });
 export const company = object({ id: { type: 'integer' }, name: { type: 'string' }, websiteUrl: nullableString, domain: nullableString, location: nullableString, industry: nullableString, createdAt: { type: 'string' }, updatedAt: { type: 'string' }, lastSyncedAt: { type: 'string' }, jobCount: { type: 'integer' }, assignedCount: { type: 'integer' }, markedAppliedCount: { type: 'integer' } });
 company.properties.isBlacklisted={type:'boolean'};
 export const companyDetail = object({ ...company.properties, details: { type: 'object', additionalProperties: true } });

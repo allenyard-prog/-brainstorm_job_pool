@@ -400,7 +400,7 @@ test("version-five migration defaults flags without changing jobs, company metad
       removeProfileSchema + "ALTER TABLE companies DROP COLUMN is_blacklisted; PRAGMA user_version=5",
     );
     migrate(store.db, ":memory:");
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 7);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 8);
     assert.deepEqual(store.jobDetail(user.id, id, true), job);
     assert.deepEqual(store.companyDetail(user.id, job.companyId), company);
     assert.throws(() =>

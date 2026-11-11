@@ -17,6 +17,8 @@ import { useAuth } from "../auth.jsx";
 import { api, queryString, dateLabel, safeLink } from "../api.js";
 import JobFilterDrawer from "../JobFilterDrawer.jsx";
 import NumberedPagination from "../NumberedPagination.jsx";
+import AiRecommendation from '../AiRecommendation.jsx';
+import AssignmentConfirmation from '../AssignmentConfirmation.jsx';
 import { profileLabel } from "../profiles.js";
 import {
   readJobFilters,
@@ -45,6 +47,7 @@ export function Jobs() {
     listParameters = { ...jobFilters, ...sorting.params };
   const chips = filterChips(jobFilters, profiles.data ?? [], sites.data ?? []);
   const [drawer, setDrawer] = useState(false);
+  const [assignment, setAssignment] = useState(null);
   const [downloading, setDownloading] = useState(false),
     [downloadError, setDownloadError] = useState(null),
     [bulkAction, setBulkAction] = useState(null),
@@ -72,62 +75,48 @@ export function Jobs() {
   const actionsDisabled =
     downloading ||
     !!bulkAction ||
+    !!assignment ||
     query.isPending ||
     query.isPlaceholderData ||
     !!query.error ||
     !query.data?.items.length;
-  async function performBulk(kind) {
+  async function copyJobs() {
     if (bulkController.current) return;
     const controller = new AbortController();
     bulkController.current = controller;
-    setBulkAction(kind);
+    setBulkAction('copy');
     setBulkError(null);
     setDownloadError(null);
     setFeedback("");
     try {
-      if (kind === "assign") {
-        const body = jobFilterBody(jobFilters);
-        const result = await api("/jobs/assign", {
-          method: "POST",
-          body,
+      const text = await api(
+        `/jobs/clipboard${queryString(listParameters)}`,
+        {
+          responseType: "text",
           signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        filters.change({});
-        void invalidateJobs(cache, user.id);
-        setFeedback(
-          `${result.assignedCount} ${result.assignedCount === 1 ? "job" : "jobs"} assigned.`,
-        );
-      } else {
-        const text = await api(
-          `/jobs/clipboard${queryString(listParameters)}`,
-          {
-            responseType: "text",
-            signal: controller.signal,
-          },
-        );
-        if (controller.signal.aborted) return;
-        const count = Math.max(0, text.trimEnd().split("\n").length - 1);
-        if (!count) {
-          setFeedback("No jobs match the current filters.");
-          return;
-        }
-        if (!navigator.clipboard?.writeText)
-          throw new Error(
-            "Clipboard access is unavailable. Allow clipboard access and try again.",
-          );
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch {
-          throw new Error(
-            "Clipboard access was blocked. Allow clipboard access and try again.",
-          );
-        }
-        if (!controller.signal.aborted)
-          setFeedback(
-            `${count} ${count === 1 ? "job" : "jobs"} copied. Paste into Google Sheets with Ctrl+V.`,
-          );
+        },
+      );
+      if (controller.signal.aborted) return;
+      const count = Math.max(0, text.trimEnd().split("\n").length - 1);
+      if (!count) {
+        setFeedback("No jobs match the current filters.");
+        return;
       }
+      if (!navigator.clipboard?.writeText)
+        throw new Error(
+          "Clipboard access is unavailable. Allow clipboard access and try again.",
+        );
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        throw new Error(
+          "Clipboard access was blocked. Allow clipboard access and try again.",
+        );
+      }
+      if (!controller.signal.aborted)
+        setFeedback(
+          `${count} ${count === 1 ? "job" : "jobs"} copied. Paste into Google Sheets with Ctrl+V.`,
+        );
     } catch (error) {
       if (!controller.signal.aborted) setBulkError(error);
     } finally {
@@ -136,6 +125,12 @@ export function Jobs() {
         setBulkAction(null);
       }
     }
+  }
+  function openAssignment(action) {
+    setBulkError(null);
+    setDownloadError(null);
+    setFeedback('');
+    setAssignment({ action, filters: jobFilterBody(jobFilters) });
   }
   async function download() {
     if (downloadController.current) return;
@@ -183,6 +178,7 @@ export function Jobs() {
       >
         The details are gathered. Find the opportunities worth your attention.
       </PageHead>
+      {user.role==='admin' && <AiRecommendation filters={jobFilterBody(jobFilters)} disabled={query.isPending || query.isPlaceholderData || !!query.error || !query.data?.items.length}/>}
       <section className="panel" aria-busy={query.isFetching}>
         <div className="filter-bar jobs-filters">
           <form
@@ -225,17 +221,27 @@ export function Jobs() {
               type="button"
               className="button subtle"
               disabled={actionsDisabled}
-              onClick={() => performBulk("assign")}
+              onClick={() => openAssignment('assign')}
               title="Mark all jobs matching the applied filters across every page as Assigned"
             >
               <Icon name="check" size={16} />
-              {bulkAction === "assign" ? "Assigning…" : "Assign all Jobs"}
+              Assign all Jobs
             </button>
             <button
               type="button"
               className="button subtle"
               disabled={actionsDisabled}
-              onClick={() => performBulk("copy")}
+              onClick={() => openAssignment('unassign')}
+              title="Unassign all assigned jobs matching the applied filters across every page"
+            >
+              <Icon name="close" size={16} />
+              Unassign jobs
+            </button>
+            <button
+              type="button"
+              className="button subtle"
+              disabled={actionsDisabled}
+              onClick={copyJobs}
               title="Copy all matches across every page as Company Name, Job Title, and Link for Google Sheets"
             >
               <Icon name="copy" size={16} />
@@ -327,6 +333,19 @@ export function Jobs() {
           />
         )}
       </section>
+      {assignment && <AssignmentConfirmation
+        action={assignment.action}
+        filters={assignment.filters}
+        onClose={() => setAssignment(null)}
+        onSuccess={(result) => {
+          const count = assignment.action === 'assign' ? result.assignedCount : result.unassignedCount;
+          const verb = assignment.action === 'assign' ? 'assigned' : 'unassigned';
+          setAssignment(null);
+          filters.change({});
+          void invalidateJobs(cache, user.id);
+          setFeedback(`${count} ${count === 1 ? 'job' : 'jobs'} ${verb}.`);
+        }}
+      />}
       {drawer && (
         <JobFilterDrawer
           filters={jobFilters}

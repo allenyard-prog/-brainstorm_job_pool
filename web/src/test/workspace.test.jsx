@@ -237,6 +237,7 @@ it("assigns all filtered jobs without pagination and refreshes their Tracking st
       assignedAt = "2026-11-08T15:00:00Z";
       return json({ assignedCount: 103 });
     },
+    '/jobs/assignment-preview': ({ json }) => json({ total: 103, fingerprint: 'a'.repeat(64), profiles: [{ connectionId: profile.id, personName: null, label: profile.label, count: 103 }] }),
   });
   renderApp(
     `/jobs?connectionId=${profile.id}&q=Engineer&site=jobright&status=saved&collectedFrom=2026-11-08T12%3A00%3A00Z&cursor=page-two&stack=%5B%22%22%5D`,
@@ -246,6 +247,7 @@ it("assigns all filtered jobs without pagination and refreshes their Tracking st
   await user.click(
     screen.getByRole("button", { name: "Assign all Jobs", exact: true }),
   );
+  await user.click(await screen.findByRole('button', { name: 'Confirm assignment' }));
   await screen.findByText("103 jobs assigned.");
   await waitFor(() =>
     expect(document.querySelector(".status-assigned")).toHaveTextContent(
@@ -263,6 +265,7 @@ it("assigns all filtered jobs without pagination and refreshes their Tracking st
     site: "jobright",
     status: "saved",
     collectedFrom: "2026-11-08T12:00:00Z",
+    previewFingerprint: 'a'.repeat(64),
   });
   expect(
     screen.getByRole("button", { name: "Previous", exact: true }),
